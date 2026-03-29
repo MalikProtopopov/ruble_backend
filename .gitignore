@@ -1,0 +1,39 @@
+# Env
+.env
+.env.prod
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Keys
+backend/keys/*.pem
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Docker
+postgres_data/
+redis_data/
+minio_data/
+
+# Backups
+backups/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI/IDE project files
+.claude/
+.cursor/
+
+# Certbot
+certbot/conf/
+certbot/www/
