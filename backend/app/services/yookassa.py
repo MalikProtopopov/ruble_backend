@@ -1,23 +1,43 @@
-"""YooKassa API client (stub/wrapper)."""
+"""YooKassa API client — real HTTP integration."""
 
-import uuid
+import ipaddress
+from decimal import Decimal
+
+import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+YOOKASSA_API_URL = "https://api.yookassa.ru/v3"
+
+# IP ranges that YooKassa sends webhooks from (official docs)
+YOOKASSA_WEBHOOK_IP_NETWORKS = [
+    ipaddress.ip_network("185.71.76.0/27"),
+    ipaddress.ip_network("185.71.77.0/27"),
+    ipaddress.ip_network("77.75.153.0/25"),
+    ipaddress.ip_network("77.75.156.11/32"),
+    ipaddress.ip_network("77.75.156.35/32"),
+    ipaddress.ip_network("77.75.154.128/25"),
+    ipaddress.ip_network("2a02:5180::/32"),
+]
+
+
+def _kopecks_to_rub(kopecks: int) -> str:
+    """Convert kopecks to rubles string for YooKassa API (e.g. 1050 -> '10.50')."""
+    return str(Decimal(kopecks) / 100)
+
 
 class YooKassaClient:
-    """Wrapper around the YooKassa HTTP API.
-
-    Currently returns mock data. Replace with real httpx calls
-    when integrating with production YooKassa.
-    """
+    """HTTP client for YooKassa Payments API."""
 
     def __init__(self) -> None:
         self.shop_id = settings.YOOKASSA_SHOP_ID
         self.secret_key = settings.YOOKASSA_SECRET_KEY
+
+    def _auth(self) -> tuple[str, str]:
+        return (self.shop_id, self.secret_key)
 
     async def create_payment(
         self,
@@ -29,30 +49,86 @@ class YooKassaClient:
         payment_method_id: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
-        """Create payment via YooKassa API.
+        """Create a payment via YooKassa API.
 
-        Returns dict with keys: id, payment_url, status.
+        For one-time payments: returns confirmation_url for redirect.
+        For recurring with saved method: no confirmation needed.
+
+        Returns dict: {id, payment_url, status, payment_method_id?}
         """
-        # TODO: Implement actual YooKassa API call via httpx
-        # POST https://api.yookassa.ru/v3/payments
-        # Auth: Basic(shop_id, secret_key)
-        # Idempotence-Key header
-        mock_id = str(uuid.uuid4())
-        payment_url = f"https://yookassa.ru/pay/{idempotence_key}"
+        body: dict = {
+            "amount": {
+                "value": _kopecks_to_rub(amount_kopecks),
+                "currency": "RUB",
+            },
+            "capture": True,
+            "description": description[:128],
+            "metadata": metadata or {},
+        }
+
+        if payment_method_id:
+            # Recurring payment with saved card — no user confirmation needed
+            body["payment_method_id"] = payment_method_id
+        else:
+            # Interactive payment — user needs to confirm on YooKassa page
+            body["confirmation"] = {
+                "type": "redirect",
+                "return_url": return_url,
+            }
+
+        if save_payment_method:
+            body["save_payment_method"] = True
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{YOOKASSA_API_URL}/payments",
+                json=body,
+                auth=self._auth(),
+                headers={
+                    "Idempotence-Key": idempotence_key,
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
+
+        if resp.status_code not in (200, 201):
+            logger.error(
+                "yookassa_create_payment_error",
+                status=resp.status_code,
+                body=resp.text,
+                idempotence_key=idempotence_key,
+            )
+            raise RuntimeError(f"YooKassa API error: {resp.status_code} {resp.text}")
+
+        data = resp.json()
+
+        result = {
+            "id": data["id"],
+            "status": data["status"],
+            "payment_url": None,
+            "payment_method_id": None,
+        }
+
+        # Extract confirmation URL for interactive payments
+        confirmation = data.get("confirmation")
+        if confirmation and confirmation.get("confirmation_url"):
+            result["payment_url"] = confirmation["confirmation_url"]
+
+        # Extract saved payment method ID
+        pm = data.get("payment_method")
+        if pm and pm.get("saved"):
+            result["payment_method_id"] = pm["id"]
 
         logger.info(
-            "yookassa_payment_created_mock",
-            payment_id=mock_id,
+            "yookassa_payment_created",
+            payment_id=data["id"],
+            status=data["status"],
             amount_kopecks=amount_kopecks,
             save_payment_method=save_payment_method,
-            idempotence_key=idempotence_key,
+            has_confirmation_url=result["payment_url"] is not None,
         )
 
-        return {
-            "id": mock_id,
-            "payment_url": payment_url,
-            "status": "pending",
-        }
+        return result
 
     async def create_recurring_payment(
         self,
@@ -62,36 +138,40 @@ class YooKassaClient:
         payment_method_id: str,
         metadata: dict | None = None,
     ) -> dict:
-        """Create a recurring (auto) payment using a saved payment method.
-
-        Returns dict with keys: id, status.
-        """
-        # TODO: Implement actual YooKassa API call via httpx
-        mock_id = str(uuid.uuid4())
-
-        logger.info(
-            "yookassa_recurring_payment_mock",
-            payment_id=mock_id,
+        """Create an auto-payment using a saved payment method (no user confirmation)."""
+        return await self.create_payment(
             amount_kopecks=amount_kopecks,
-            payment_method_id=payment_method_id,
+            description=description,
             idempotence_key=idempotence_key,
+            return_url="",  # not used for recurring
+            save_payment_method=False,
+            payment_method_id=payment_method_id,
+            metadata=metadata,
         )
 
-        return {
-            "id": mock_id,
-            "status": "pending",
-        }
+    async def get_payment(self, payment_id: str) -> dict:
+        """Get payment details from YooKassa to extract payment_method info."""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{YOOKASSA_API_URL}/payments/{payment_id}",
+                auth=self._auth(),
+                timeout=15.0,
+            )
 
-    async def verify_webhook_signature(self, body: bytes, signature: str) -> bool:
-        """Verify YooKassa webhook IP or signature.
+        if resp.status_code != 200:
+            logger.error("yookassa_get_payment_error", status=resp.status_code, payment_id=payment_id)
+            raise RuntimeError(f"YooKassa API error: {resp.status_code}")
 
-        YooKassa webhooks are verified by IP whitelist rather than HMAC.
-        This method is a placeholder for that check.
-        """
-        # TODO: Implement IP whitelist verification
-        # YooKassa sends from specific IPs listed in their docs
-        logger.warning("yookassa_webhook_signature_not_verified")
-        return True
+        return resp.json()
+
+    @staticmethod
+    def is_webhook_ip_trusted(ip: str) -> bool:
+        """Check if the IP address belongs to YooKassa webhook senders."""
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False
+        return any(addr in network for network in YOOKASSA_WEBHOOK_IP_NETWORKS)
 
 
 yookassa_client = YooKassaClient()

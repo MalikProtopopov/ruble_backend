@@ -15,6 +15,7 @@ import app.tasks.cleanup  # noqa: F401
 import app.tasks.reconciliation  # noqa: F401
 import app.tasks.expiry  # noqa: F401
 import app.tasks.streak_push  # noqa: F401
+import app.tasks.billing  # noqa: F401
 
 scheduler = TaskiqScheduler(
     broker=broker,

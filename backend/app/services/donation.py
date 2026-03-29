@@ -12,7 +12,9 @@ from app.core.pagination import decode_cursor, encode_cursor
 from app.models import Campaign, Donation, Foundation, User
 from app.models.base import CampaignStatus, DonationSource, DonationStatus
 from app.domain.constants import MIN_DONATION_AMOUNT_KOPECKS
+from app.core.config import settings
 from app.services.payment import calculate_fees
+from app.services.yookassa import yookassa_client
 
 
 async def create_donation(
@@ -76,8 +78,17 @@ async def create_donation(
     session.add(donation)
     await session.flush()
 
-    # TODO: create YooKassa payment, set donation.payment_url
-    donation.payment_url = f"https://yookassa.ru/pay/{idempotence_key}"
+    # Create YooKassa payment
+    payment = await yookassa_client.create_payment(
+        amount_kopecks=amount_kopecks,
+        description=f"Пожертвование: {campaign.title}"[:128],
+        idempotence_key=idempotence_key,
+        return_url=f"{settings.PUBLIC_API_URL}/api/v1/donations/{donation.id}/status",
+        save_payment_method=False,
+        metadata={"type": "donation", "entity_id": str(donation.id)},
+    )
+    donation.provider_payment_id = payment["id"]
+    donation.payment_url = payment["payment_url"]
     await session.flush()
 
     return donation

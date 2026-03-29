@@ -14,8 +14,10 @@ from app.models.base import AllocationStrategy, BillingPeriod, CampaignStatus, S
 from app.domain.constants import ALLOWED_SUBSCRIPTION_AMOUNTS
 from app.domain.subscription import InvalidSubscriptionAmount, validate_subscription_amount
 from app.domain.subscription import billing_amount
+from app.core.config import settings
 from app.services.payment import calculate_fees
 from app.services.subscription_limits import check_subscription_limit
+from app.services.yookassa import yookassa_client
 
 
 async def create_subscription(session: AsyncSession, user_id: UUID, data: dict) -> Subscription:
@@ -139,8 +141,8 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
     period_label = "еженедельно" if bp == "weekly" else "ежемесячно"
     rub = sub.amount_kopecks / 100
 
-    # TODO: create YooKassa payment with save_payment_method=true
     idempotence_key = str(uuid7())
+    description = f"Подписка «По Рублю» — {rub:.0f}₽/день ({period_label})"
 
     # Create Transaction record for the first payment
     fees = calculate_fees(amount)
@@ -158,12 +160,26 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
     session.add(txn)
     await session.flush()
 
-    payment_url = f"https://yookassa.ru/pay/{idempotence_key}"
+    # Create YooKassa payment with save_payment_method=true for recurring billing
+    payment = await yookassa_client.create_payment(
+        amount_kopecks=amount,
+        description=description[:128],
+        idempotence_key=idempotence_key,
+        return_url=f"{settings.PUBLIC_API_URL}/api/v1/subscriptions/{sub.id}/status",
+        save_payment_method=True,
+        metadata={
+            "type": "transaction",
+            "entity_id": str(txn.id),
+            "subscription_id": str(sub.id),
+        },
+    )
+    txn.provider_payment_id = payment["id"]
+    await session.flush()
 
     return {
-        "payment_url": payment_url,
+        "payment_url": payment["payment_url"],
         "confirmation_type": "redirect",
         "subscription_id": sub.id,
         "amount_kopecks": amount,
-        "description": f"Подписка «По Рублю» — {rub:.0f}₽/день ({period_label})",
+        "description": description,
     }

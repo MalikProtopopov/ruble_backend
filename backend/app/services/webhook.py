@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models import Donation, PatronPaymentLink, Subscription, Transaction, User
 from app.models.base import DonationStatus, PatronLinkStatus, SubscriptionStatus, TransactionStatus
+from app.services.yookassa import yookassa_client
 from app.services.impact import check_and_award_achievements
 from app.services.notification import send_push
 from app.services.payment import process_successful_payment
@@ -26,7 +27,7 @@ async def process_yookassa_webhook(session: AsyncSession, event: dict) -> dict:
     metadata = payment_obj.get("metadata", {})
 
     if event_type == "payment.succeeded":
-        await handle_payment_succeeded(session, payment_id, metadata)
+        await handle_payment_succeeded(session, payment_id, metadata, payment_obj)
         return {"status": "ok", "event": event_type}
     elif event_type == "payment.canceled":
         reason = payment_obj.get("cancellation_details", {}).get("reason")
@@ -37,7 +38,9 @@ async def process_yookassa_webhook(session: AsyncSession, event: dict) -> dict:
         return {"status": "ignored", "event": event_type}
 
 
-async def handle_payment_succeeded(session: AsyncSession, payment_id: str, metadata: dict) -> None:
+async def handle_payment_succeeded(
+    session: AsyncSession, payment_id: str, metadata: dict, payment_obj: dict | None = None,
+) -> None:
     """Handle payment.succeeded webhook from YooKassa."""
     payment_type = metadata.get("type")  # donation, transaction, patron_link
     entity_id = metadata.get("entity_id")
@@ -84,10 +87,29 @@ async def handle_payment_succeeded(session: AsyncSession, payment_id: str, metad
                 user_id = sub.user_id if sub else None
                 await process_successful_payment(session, txn.campaign_id, user_id, txn.amount_kopecks)
 
-            # Update next_billing_at
+            # Activate subscription and save payment method if this is the first payment
             if sub:
                 days = 7 if sub.billing_period.value == "weekly" else 30
                 sub.next_billing_at = datetime.now(timezone.utc) + timedelta(days=days)
+
+                if sub.status == SubscriptionStatus.pending_payment_method:
+                    sub.status = SubscriptionStatus.active
+                    # Extract saved payment_method_id from webhook payload or API
+                    pm = (payment_obj or {}).get("payment_method", {})
+                    if pm.get("saved") and pm.get("id"):
+                        sub.payment_method_id = pm["id"]
+                        logger.info("payment_method_saved", subscription_id=str(sub.id), pm_id=pm["id"])
+                    elif not sub.payment_method_id:
+                        # Fallback: fetch payment details from API to get payment_method
+                        try:
+                            full_payment = await yookassa_client.get_payment(payment_id)
+                            pm_data = full_payment.get("payment_method", {})
+                            if pm_data.get("saved") and pm_data.get("id"):
+                                sub.payment_method_id = pm_data["id"]
+                                logger.info("payment_method_saved_via_api", subscription_id=str(sub.id))
+                        except Exception:
+                            logger.warning("failed_to_fetch_payment_method", payment_id=payment_id)
+
                 await session.flush()
 
             # Check thanks content and achievements for subscription user
