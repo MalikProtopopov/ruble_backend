@@ -163,3 +163,4 @@ class MediaAssetType(str, enum.Enum):
     video = "video"
     document = "document"
     audio = "audio"
+    image = "image"

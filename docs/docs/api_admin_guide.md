@@ -1130,7 +1130,7 @@ Authorization: Bearer <admin_access_token>
 
 ### Рекомендуемый флоу для админки (модалка загрузки)
 
-1. Пользователь выбирает файл и тип (`video` / `document` / `audio`).
+1. Пользователь выбирает файл и тип (`video` / `document` / `audio` / `image`).
 2. Фронт отправляет **`multipart/form-data`** с полями **`file`** и **`type`**. Не задавайте заголовок `Content-Type` вручную — браузер добавит `boundary`.
 3. Из ответа сохраните **`url`** (обязательно для полей кампании/фонда и для благодарностей) и при необходимости **`id`** / **`key`** для справки и повторного использования.
 4. Для **благодарности с аудио**: в upload укажите **`type=audio`**, в **`POST .../thanks`** передайте **`type: "audio"`** и **`media_url`** = `url` из ответа upload (не используйте `type=video` для аудиофайла).
@@ -1153,7 +1153,7 @@ Authorization: Bearer <admin_access_token>
 | Поле | Тип | Обязательное | Описание | Ограничения |
 |---|---|---|---|---|
 | `file` | file (binary) | да | Файл для загрузки | См. ограничения ниже |
-| `type` | string | да | Тип медиа | `video`, `document` или `audio` |
+| `type` | string | да | Тип медиа | `video`, `document`, `audio` или `image` |
 
 **Ограничения по типам:**
 
@@ -1162,6 +1162,7 @@ Authorization: Bearer <admin_access_token>
 | `video` | 500 МБ | `video/mp4` |
 | `document` | 10 МБ | `application/pdf` |
 | `audio` | 50 МБ | `audio/mpeg`, `audio/mp4`, `audio/ogg`, `audio/webm` |
+| `image` | 20 МБ | `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `image/svg+xml` |
 
 **Пример запроса (curl):**
 
@@ -1199,15 +1200,15 @@ curl -X POST \
 
 | HTTP код | Код ошибки | Описание |
 |---|---|---|
-| 422 | `INVALID_MEDIA_TYPE` | Тип должен быть `video`, `document` или `audio` |
-| 422 | `FILE_TOO_LARGE` | Файл превышает максимальный размер (видео 500 МБ, документ 10 МБ, аудио 50 МБ) |
+| 422 | `INVALID_MEDIA_TYPE` | Тип должен быть `video`, `document`, `audio` или `image` |
+| 422 | `FILE_TOO_LARGE` | Файл превышает максимальный размер (видео 500 МБ, документ 10 МБ, аудио 50 МБ, изображение 20 МБ) |
 | 422 | `INVALID_FILE_FORMAT` | Недопустимый MIME для выбранного типа |
 
 ---
 
 ### 4.2. GET /media
 
-Список загруженных файлов (курсорная пагинация). Query: `limit`, `cursor`, опционально `type` (`video` \| `document` \| `audio`), `search`.
+Список загруженных файлов (курсорная пагинация). Query: `limit`, `cursor`, опционально `type` (`video` \| `document` \| `audio` \| `image`), `search`.
 
 ---
 
@@ -1542,7 +1543,13 @@ curl -X POST \
 | `period_to` | date \| null | Конец периода |
 
 ---
+ Смотри, у меня есть ссылка в гет запросе, но там 404 ошибка: [Pasted text #1 +31 lines]
+  Мне нужно чтобы всме работало корректнО: в админке я мог получить корректные ссылки и посмотреть фото, видео, медиа, аудио, в    
+  админке чтобы понимать что я корректные материалы загрузил, а также в клиентском приложении обязаиельно чтобы все корректно       
+  подгружалось тоже. Если там какие-то настройки в енв файл добавить надо сделай, если как-то бекенд дроработать давай, мне нужно   
+  чтобы ссылки стали рабочими:             
 
+  
 ### 6.2. GET /stats/campaigns/{campaign_id}
 
 Статистика по конкретной кампании.
@@ -2234,8 +2241,8 @@ curl -X POST \
 | `INN_ALREADY_EXISTS` | 409 | ИНН уже зарегистрирован | POST/PATCH /foundations |
 | `INVALID_STATUS_TRANSITION` | 422 | Недопустимый переход статуса кампании | POST /campaigns/{id}/publish, pause, complete, close-early, archive |
 | `DUPLICATE_OFFLINE_PAYMENT` | 409 | Дублирующий офлайн-платёж | POST /campaigns/{id}/offline-payment |
-| `INVALID_MEDIA_TYPE` | 422 | Тип медиа должен быть video, document или audio | POST /media/upload |
-| `FILE_TOO_LARGE` | 422 | Файл превышает лимит (видео 500 МБ, документ 10 МБ, аудио 50 МБ) | POST /media/upload |
+| `INVALID_MEDIA_TYPE` | 422 | Тип медиа должен быть video, document, audio или image | POST /media/upload |
+| `FILE_TOO_LARGE` | 422 | Файл превышает лимит (видео 500 МБ, документ 10 МБ, аудио 50 МБ, изображение 20 МБ) | POST /media/upload |
 | `INVALID_FILE_FORMAT` | 422 | Недопустимый MIME-тип файла | POST /media/upload |
 | `ACHIEVEMENT_CODE_EXISTS` | 409 | Код достижения уже существует | POST/PATCH /achievements |
 | `ADMIN_EMAIL_EXISTS` | 409 | Email администратора уже занят | POST/PATCH /admins |

@@ -32,11 +32,21 @@ async def upload_media(file_content: bytes, filename: str, content_type: str, me
     try:
         validate_media(media_type, content_type, size)
     except FileTooLarge:
-        msg = "Видео не должно превышать 500 МБ" if media_type == "video" else "Документ не должен превышать 10 МБ"
-        raise BusinessLogicError(code="FILE_TOO_LARGE", message=msg)
+        msgs = {
+            "video": "Видео не должно превышать 500 МБ",
+            "document": "Документ не должен превышать 10 МБ",
+            "audio": "Аудио не должно превышать 50 МБ",
+            "image": "Изображение не должно превышать 20 МБ",
+        }
+        raise BusinessLogicError(code="FILE_TOO_LARGE", message=msgs.get(media_type, "Файл слишком большой"))
     except InvalidFileFormat:
-        msg = "Допустимый формат видео: mp4" if media_type == "video" else "Допустимый формат документа: pdf"
-        raise BusinessLogicError(code="INVALID_FILE_FORMAT", message=msg)
+        msgs = {
+            "video": "Допустимый формат видео: mp4",
+            "document": "Допустимый формат документа: pdf",
+            "audio": "Допустимый формат аудио: mp3, mp4, ogg, webm",
+            "image": "Допустимый формат изображения: jpeg, png, webp, gif, svg",
+        }
+        raise BusinessLogicError(code="INVALID_FILE_FORMAT", message=msgs.get(media_type, "Недопустимый формат файла"))
 
     ext = filename.rsplit(".", 1)[-1] if "." in filename else "bin"
     key = f"media/{uuid.uuid4()}.{ext}"

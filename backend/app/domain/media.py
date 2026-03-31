@@ -3,9 +3,11 @@
 from app.domain.constants import (
     ALLOWED_AUDIO_CONTENT_TYPES,
     ALLOWED_DOCUMENT_CONTENT_TYPES,
+    ALLOWED_IMAGE_CONTENT_TYPES,
     ALLOWED_VIDEO_CONTENT_TYPES,
     MAX_AUDIO_SIZE_BYTES,
     MAX_DOCUMENT_SIZE_BYTES,
+    MAX_IMAGE_SIZE_BYTES,
     MAX_VIDEO_SIZE_BYTES,
 )
 
@@ -37,5 +39,10 @@ def validate_media(media_type: str, content_type: str, size_bytes: int) -> None:
             raise InvalidFileFormat(content_type, ALLOWED_AUDIO_CONTENT_TYPES)
         if size_bytes > MAX_AUDIO_SIZE_BYTES:
             raise FileTooLarge(media_type, size_bytes, MAX_AUDIO_SIZE_BYTES)
+    elif media_type == "image":
+        if content_type not in ALLOWED_IMAGE_CONTENT_TYPES:
+            raise InvalidFileFormat(content_type, ALLOWED_IMAGE_CONTENT_TYPES)
+        if size_bytes > MAX_IMAGE_SIZE_BYTES:
+            raise FileTooLarge(media_type, size_bytes, MAX_IMAGE_SIZE_BYTES)
     else:
         raise ValueError(f"Unknown media type: {media_type}")

@@ -52,7 +52,7 @@ def _list_item(row) -> dict:
     description="Список загруженных файлов с курсорной пагинацией",
 )
 async def list_media(
-    type: str | None = Query(default=None, description="video, document или audio"),
+    type: str | None = Query(default=None, description="video, document, audio или image"),
     search: str | None = Query(default=None, description="Поиск по имени файла или s3_key"),
     pagination: PaginationParams = Depends(get_pagination),
     _admin: dict = Depends(require_admin),
@@ -60,10 +60,10 @@ async def list_media(
 ):
     asset_type: MediaAssetType | None = None
     if type is not None:
-        if type not in ("video", "document", "audio"):
+        if type not in ("video", "document", "audio", "image"):
             raise BusinessLogicError(
                 code="INVALID_MEDIA_TYPE",
-                message="Параметр type должен быть 'video', 'document' или 'audio'",
+                message="Параметр type должен быть 'video', 'document', 'audio' или 'image'",
             )
         asset_type = MediaAssetType(type)
     result = await media_repo.list_admin(session, pagination, asset_type=asset_type, search=search)
@@ -119,18 +119,18 @@ async def get_media(
     "/upload",
     response_model=MediaUploadResponse,
     summary="Upload media file",
-    description="Загрузка видео, документа или аудио в S3-хранилище",
+    description="Загрузка видео, документа, аудио или изображения в S3-хранилище",
 )
 async def upload_media(
     file: UploadFile = File(...),
-    type: str = Form(..., description="video, document или audio"),
+    type: str = Form(..., description="video, document, audio или image"),
     admin: dict = Depends(require_admin),
     session: AsyncSession = Depends(get_db_session),
 ):
-    if type not in ("video", "document", "audio"):
+    if type not in ("video", "document", "audio", "image"):
         raise BusinessLogicError(
             code="INVALID_MEDIA_TYPE",
-            message="Тип должен быть 'video', 'document' или 'audio'",
+            message="Тип должен быть 'video', 'document', 'audio' или 'image'",
         )
 
     content = await file.read()
@@ -141,8 +141,9 @@ async def upload_media(
         "video": "Видео не должно превышать 500 МБ",
         "document": "Документ не должен превышать 10 МБ",
         "audio": "Аудио не должно превышать 50 МБ",
+        "image": "Изображение не должно превышать 20 МБ",
     }
-    _format_label = {"video": "видео", "document": "документа", "audio": "аудио"}
+    _format_label = {"video": "видео", "document": "документа", "audio": "аудио", "image": "изображения"}
 
     try:
         validate_media(type, content_type, size_bytes)
@@ -155,7 +156,7 @@ async def upload_media(
             message=f"Недопустимый формат {label}: {content_type}",
         )
 
-    prefix = {"video": "videos", "document": "documents", "audio": "audio"}[type]
+    prefix = {"video": "videos", "document": "documents", "audio": "audio", "image": "images"}[type]
 
     ext = ""
     if file.filename and "." in file.filename:

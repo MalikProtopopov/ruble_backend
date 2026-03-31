@@ -24,10 +24,14 @@ REFRESH_TOKEN_EXPIRE_DAYS = 30
 MAX_VIDEO_SIZE_BYTES = 500 * 1024 * 1024   # 500 MB
 MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_AUDIO_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+MAX_IMAGE_SIZE_BYTES = 20 * 1024 * 1024  # 20 MB
 ALLOWED_VIDEO_CONTENT_TYPES = frozenset({"video/mp4"})
 ALLOWED_DOCUMENT_CONTENT_TYPES = frozenset({"application/pdf"})
 ALLOWED_AUDIO_CONTENT_TYPES = frozenset(
     {"audio/mpeg", "audio/mp4", "audio/ogg", "audio/webm"}
+)
+ALLOWED_IMAGE_CONTENT_TYPES = frozenset(
+    {"image/jpeg", "image/png", "image/webp", "image/gif", "image/svg+xml"}
 )
 
 # Patron
