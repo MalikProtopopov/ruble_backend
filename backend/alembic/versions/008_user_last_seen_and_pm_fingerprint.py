@@ -3,7 +3,7 @@
 Adds infrastructure for the inactive-anonymous-account cleanup task and
 for cross-account orphaned-card recovery.
 
-Revision ID: 008_user_last_seen_and_pm_fingerprint
+Revision ID: 008_last_seen_fp
 Revises: 007_payment_methods
 """
 from typing import Sequence, Union
@@ -12,7 +12,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "008_user_last_seen_and_pm_fingerprint"
+# Kept short — alembic_version.version_num is varchar(32) on existing prod DBs.
+revision: str = "008_last_seen_fp"
 down_revision: Union[str, None] = "007_payment_methods"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
