@@ -29,6 +29,8 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
               postgresql_where="role = 'patron'"),
         Index("idx_users_streak_push", "next_streak_push_at",
               postgresql_where="next_streak_push_at IS NOT NULL AND is_deleted = false"),
+        Index("idx_users_inactive_anonymous", "last_seen_at",
+              postgresql_where="is_anonymous = true AND is_deleted = false"),
     )
 
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -60,6 +62,9 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     total_donated_kopecks: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     total_donations_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     next_streak_push_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Updated on every authenticated request (throttled to once per LAST_SEEN_THROTTLE_MINUTES).
+    # Used by the inactive-anonymous-cleanup cron task.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 

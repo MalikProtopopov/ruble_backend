@@ -67,6 +67,9 @@ async def handle_payment_succeeded(
                         card_last4=card.get("last4"),
                         card_type=card.get("card_type"),
                         title=pm_payload.get("title"),
+                        card_first6=card.get("first6"),
+                        card_exp_month=card.get("expiry_month"),
+                        card_exp_year=card.get("expiry_year"),
                     )
 
             # Check for thanks content and achievements

@@ -23,6 +23,11 @@ class PaymentMethod(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
             unique=True,
             postgresql_where="is_deleted = false",
         ),
+        Index(
+            "idx_payment_methods_fingerprint",
+            "card_fingerprint",
+            postgresql_where="is_deleted = false AND card_fingerprint IS NOT NULL",
+        ),
     )
 
     user_id: Mapped[UUID] = mapped_column(
@@ -34,3 +39,6 @@ class PaymentMethod(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     card_type: Mapped[str | None] = mapped_column(String(32))
     title: Mapped[str | None] = mapped_column(String(64))
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # SHA-256 of "first6|last4|exp_month|exp_year". Used to detect the same physical
+    # card across orphaned anonymous accounts (recovery endpoint).
+    card_fingerprint: Mapped[str | None] = mapped_column(String(64))

@@ -17,6 +17,7 @@ import app.tasks.expiry  # noqa: F401
 import app.tasks.streak_push  # noqa: F401
 import app.tasks.donation_reminder  # noqa: F401
 import app.tasks.billing  # noqa: F401
+import app.tasks.inactive_anonymous_cleanup  # noqa: F401
 
 scheduler = TaskiqScheduler(
     broker=broker,

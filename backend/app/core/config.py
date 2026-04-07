@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     # Donations
     DONATION_COOLDOWN_HOURS: int = 8
 
+    # last_seen_at: throttle DB writes for activity tracking. The middleware will
+    # only update users.last_seen_at when the cached "last write" is older than this
+    # threshold (kept in Redis). 15 min is a good balance between accuracy and write load.
+    LAST_SEEN_THROTTLE_MINUTES: int = 15
+
+    # Inactive anonymous account cleanup. After this many days without a single
+    # authenticated request the cleanup task cancels their active subscriptions
+    # and soft-deletes the account. Matches the anonymous refresh-token TTL.
+    ANONYMOUS_INACTIVE_DAYS: int = 180
+
     # CORS
     CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
 

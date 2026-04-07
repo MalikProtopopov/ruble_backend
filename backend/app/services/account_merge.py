@@ -7,7 +7,7 @@ session lifetime / commit.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BusinessLogicError
@@ -19,6 +19,7 @@ from app.models import (
     Subscription,
     User,
 )
+from app.models.base import SubscriptionStatus
 
 logger = get_logger(__name__)
 
@@ -66,13 +67,59 @@ async def merge_anonymous_into(
     # 4. Payment methods (model added in a separate migration; import lazily).
     try:
         from app.models.payment_method import PaymentMethod  # noqa: WPS433
+
         await session.execute(
             update(PaymentMethod)
             .where(PaymentMethod.user_id == src_id)
             .values(user_id=tgt_id)
         )
+
+        # Dedupe is_default: at most one PM per user can be default. Keep the
+        # newest non-deleted one as default, demote the rest.
+        all_pms = (await session.execute(
+            select(PaymentMethod)
+            .where(
+                PaymentMethod.user_id == tgt_id,
+                PaymentMethod.is_deleted == False,  # noqa: E712
+            )
+            .order_by(PaymentMethod.created_at.desc())
+        )).scalars().all()
+        seen_default = False
+        for pm in all_pms:
+            if pm.is_default and not seen_default:
+                seen_default = True
+                continue
+            if pm.is_default:
+                pm.is_default = False
+        # If nothing was marked default, promote the newest one.
+        if all_pms and not seen_default:
+            all_pms[0].is_default = True
     except ImportError:
         pass
+
+    # 4b. Deduplicate active subscriptions on the merged target. After moving
+    # source's subs into target, target may have several `active` subscriptions
+    # competing for charges (e.g. both source and target had a monthly platform
+    # subscription). Keep the OLDEST one (longest streak) and cancel the rest —
+    # otherwise the user gets double-billed by the recurring billing job.
+    active_subs = (await session.execute(
+        select(Subscription)
+        .where(
+            Subscription.user_id == tgt_id,
+            Subscription.status == SubscriptionStatus.active,
+            Subscription.is_deleted == False,  # noqa: E712
+        )
+        .order_by(Subscription.created_at.asc())
+    )).scalars().all()
+    if len(active_subs) > 1:
+        for dup in active_subs[1:]:
+            dup.status = SubscriptionStatus.cancelled
+            dup.cancelled_at = datetime.now(timezone.utc)
+        logger.info(
+            "merge_dedup_subscriptions",
+            target_user_id=str(tgt_id),
+            cancelled_count=len(active_subs) - 1,
+        )
 
     # 5. Revoke source refresh tokens
     await session.execute(

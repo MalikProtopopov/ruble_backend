@@ -83,6 +83,9 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    from app.core.middleware import LastSeenMiddleware
+    app.add_middleware(LastSeenMiddleware)
+
     register_exception_handlers(app)
 
     # --- Routers ---

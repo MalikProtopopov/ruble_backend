@@ -111,6 +111,7 @@ async def device_register(
             device_id=device_id,
             is_anonymous=True,
             is_email_verified=False,
+            last_seen_at=datetime.now(timezone.utc),
         )
         if timezone_name:
             user.timezone = timezone_name
@@ -137,6 +138,7 @@ async def device_register(
                 pass
         if timezone_name and user.timezone != timezone_name:
             user.timezone = timezone_name
+        user.last_seen_at = datetime.now(timezone.utc)
         await session.flush()
 
     access_token, refresh_token = await _create_user_tokens(session, user)
