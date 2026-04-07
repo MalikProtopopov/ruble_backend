@@ -48,43 +48,15 @@ async def test_create_donation_inactive_campaign(db: AsyncSession, user: User, f
     assert exc_info.value.code == "CAMPAIGN_NOT_ACTIVE"
 
 
-async def test_create_donation_guest_requires_auth(db: AsyncSession, campaign: Campaign):
-    """Guest donation with unknown email raises AUTH_REQUIRED (OTP flow required)."""
-    guest_email = f"guest-{uuid7().hex[:8]}@example.com"
-
-    with pytest.raises(AppError) as exc_info:
-        await create_donation(db, campaign.id, 2000, email=guest_email)
-
-    assert exc_info.value.code == "AUTH_REQUIRED"
-    assert exc_info.value.details.get("is_new") is True
-
-
-async def test_create_donation_guest_existing_active(db: AsyncSession, campaign: Campaign):
-    """Guest donation with existing active user email raises AUTH_REQUIRED."""
-    existing = await create_user(db, email="taken@example.com")
-
-    with pytest.raises(AppError) as exc_info:
-        await create_donation(db, campaign.id, 2000, email="taken@example.com")
-
-    assert exc_info.value.code == "AUTH_REQUIRED"
-
-
-async def test_create_donation_guest_deactivated(db: AsyncSession, campaign: Campaign):
-    """Guest donation with deactivated user email raises ACCOUNT_DEACTIVATED."""
-    await create_user(db, email="dead@example.com", is_active=False)
-
-    with pytest.raises(AppError) as exc_info:
-        await create_donation(db, campaign.id, 2000, email="dead@example.com")
-
-    assert exc_info.value.code == "ACCOUNT_DEACTIVATED"
-
-
-async def test_create_donation_guest_no_email(db: AsyncSession, campaign: Campaign):
-    """Guest donation without email raises EMAIL_REQUIRED."""
+async def test_create_donation_unauthenticated_raises_auth_required(
+    db: AsyncSession, campaign: Campaign,
+):
+    """Donations always require auth — guest flow is replaced by /auth/device-register."""
     with pytest.raises(AppError) as exc_info:
         await create_donation(db, campaign.id, 2000)
 
-    assert exc_info.value.code == "EMAIL_REQUIRED"
+    assert exc_info.value.code == "AUTH_REQUIRED"
+    assert exc_info.value.status_code == 401
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +76,7 @@ async def test_list_donations(db: AsyncSession, user: User, campaign: Campaign):
 
     result = await list_donations(db, user.id)
 
-    ids = {str(d.id) for d in result["data"]}
+    ids = {str(d["id"]) for d in result["data"]}
     assert str(d1.id) in ids
     assert str(d2.id) in ids
     assert str(_d3.id) not in ids

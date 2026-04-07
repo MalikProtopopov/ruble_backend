@@ -9,17 +9,24 @@ class NotificationPreferences(BaseModel):
     push_on_campaign_change: bool = True
     push_daily_streak: bool = False
     push_campaign_completed: bool = True
+    push_on_donation_reminder: bool = True
 
 
 class UserProfileResponse(OrmBase):
     id: UUID
-    email: str
-    phone: str | None
-    name: str | None
-    avatar_url: str | None
+    email: str | None = None
+    phone: str | None = None
+    name: str | None = None
+    avatar_url: str | None = None
     role: str
     timezone: str
+    is_anonymous: bool = False
+    is_email_verified: bool = False
     notification_preferences: NotificationPreferences
+    current_streak_days: int = 0
+    total_donated_kopecks: int = 0
+    total_donations_count: int = 0
+    donation_cooldown_hours: int = 0
     created_at: datetime
 
 
@@ -37,6 +44,7 @@ class UpdateNotificationsRequest(BaseModel):
     push_on_campaign_change: bool | None = None
     push_daily_streak: bool | None = None
     push_campaign_completed: bool | None = None
+    push_on_donation_reminder: bool | None = None
 
 
 # --- Admin schemas ---

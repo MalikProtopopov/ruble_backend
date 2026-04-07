@@ -29,6 +29,13 @@ class ThanksContentBrief(OrmBase):
     description: str | None
 
 
+class LastDonationBrief(OrmBase):
+    id: UUID
+    amount_kopecks: int
+    created_at: datetime
+    status: str
+
+
 class CampaignListItem(OrmBase):
     id: UUID
     foundation_id: UUID
@@ -44,6 +51,11 @@ class CampaignListItem(OrmBase):
     is_permanent: bool
     ends_at: datetime | None
     created_at: datetime
+    # User-specific fields (null for guests / anonymous tokens)
+    donated_today: bool | None = None
+    has_any_donation: bool | None = None
+    last_donation: LastDonationBrief | None = None
+    next_available_at: datetime | None = None
 
 
 class CampaignDetailResponse(CampaignListItem):
@@ -52,6 +64,7 @@ class CampaignDetailResponse(CampaignListItem):
     close_note: str | None
     documents: list[CampaignDocumentResponse] = []
     thanks_contents: list[ThanksContentBrief] = []
+    cooldown_hours: int = 0
 
 
 class ShareResponse(BaseModel):

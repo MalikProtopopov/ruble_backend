@@ -37,3 +37,12 @@ Thumbs.db
 # Certbot
 certbot/conf/
 certbot/www/
+
+# Firebase service-account credentials (NEVER commit)
+porublyu-be27f-firebase-adminsdk-*.json
+*-firebase-adminsdk-*.json
+
+# Mock media (large binaries — keep out of git)
+docs/mocks/feed/
+docs/mocks/thanks/
+dump.rdb

@@ -52,6 +52,23 @@ async def handle_payment_succeeded(
             donation.status = DonationStatus.success
             await session.flush()
             await process_successful_payment(session, donation.campaign_id, donation.user_id, donation.amount_kopecks)
+
+            # Persist saved payment method (if the donation was created with save_payment_method=true)
+            if donation.user_id and metadata.get("save_payment_method") == "1":
+                pm_payload = (payment_obj or {}).get("payment_method", {})
+                if pm_payload.get("saved") and pm_payload.get("id"):
+                    from app.services.payment_method import save_from_yookassa
+
+                    card = pm_payload.get("card", {}) or {}
+                    await save_from_yookassa(
+                        session,
+                        user_id=donation.user_id,
+                        provider_pm_id=pm_payload["id"],
+                        card_last4=card.get("last4"),
+                        card_type=card.get("card_type"),
+                        title=pm_payload.get("title"),
+                    )
+
             # Check for thanks content and achievements
             if donation.user_id:
                 thanks_id = await find_unseen_thanks_for_campaign(session, donation.user_id, donation.campaign_id)

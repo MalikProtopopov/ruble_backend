@@ -59,6 +59,22 @@ async def create_subscription(session: AsyncSession, user_id: UUID, data: dict) 
     return sub
 
 
+async def get_active_for_user(session: AsyncSession, user_id: UUID) -> Subscription | None:
+    """Return the user's active subscription (if any). Used by mobile to decide
+    whether to show the 'Subscribe' CTA on the thank-you screen."""
+    result = await session.execute(
+        select(Subscription)
+        .where(
+            Subscription.user_id == user_id,
+            Subscription.status == SubscriptionStatus.active,
+            Subscription.is_deleted == False,  # noqa: E712
+        )
+        .order_by(Subscription.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def list_subscriptions(session: AsyncSession, user_id: UUID) -> list[Subscription]:
     result = await session.execute(
         select(Subscription)
@@ -165,7 +181,7 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
         amount_kopecks=amount,
         description=description[:128],
         idempotence_key=idempotence_key,
-        return_url=f"{settings.PUBLIC_API_URL}/api/v1/subscriptions/{sub.id}/status",
+        return_url="porublyu://payment-result",
         save_payment_method=True,
         metadata={
             "type": "transaction",

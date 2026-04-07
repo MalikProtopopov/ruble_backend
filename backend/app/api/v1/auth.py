@@ -1,4 +1,6 @@
-"""Authentication: email OTP flow."""
+"""Authentication: email OTP flow + anonymous device registration."""
+
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.security import require_donor
 from app.schemas.auth import (
+    DeviceRegisterRequest,
+    LinkEmailTokenResponse,
+    LinkEmailVerifyRequest,
     LogoutRequest,
     OTPSentResponse,
     RefreshRequest,
@@ -48,6 +53,56 @@ async def verify_otp(
     session: AsyncSession = Depends(get_db_session),
 ):
     return await auth_service.verify_otp(session, body.email, body.code)
+
+
+@router.post(
+    "/device-register",
+    response_model=UserTokenResponse,
+    summary="Register an anonymous device",
+    description=(
+        "Создаёт гостевого пользователя по client-generated device_id и возвращает "
+        "пару access/refresh токенов с увеличенным TTL refresh-токена. "
+        "Идемпотентно: повторный вызов с тем же device_id вернёт того же юзера."
+    ),
+    responses=_error_responses,
+)
+async def device_register(
+    body: DeviceRegisterRequest,
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await auth_service.device_register(
+        session,
+        device_id=body.device_id,
+        push_token=body.push_token,
+        push_platform=body.push_platform,
+        timezone_name=body.timezone,
+    )
+
+
+@router.post(
+    "/link-email/verify-otp",
+    response_model=LinkEmailTokenResponse,
+    summary="Link email to anonymous account (with optional merge)",
+    description=(
+        "Привязывает email к текущему гостевому аккаунту после проверки OTP. "
+        "Если email уже принадлежит другому юзеру и allow_merge=false — вернёт ошибку "
+        "EMAIL_ALREADY_LINKED. Если allow_merge=true — выполнит слияние гостевого "
+        "аккаунта в существующий и вернёт токены целевого аккаунта."
+    ),
+    responses=_error_responses,
+)
+async def link_email_verify_otp(
+    body: LinkEmailVerifyRequest,
+    session: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(require_donor),
+):
+    return await auth_service.link_email_verify_otp(
+        session,
+        current_user_id=UUID(user["sub"]),
+        email=body.email,
+        code=body.code,
+        allow_merge=body.allow_merge,
+    )
 
 
 @router.post(

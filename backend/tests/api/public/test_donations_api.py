@@ -34,48 +34,18 @@ async def test_create_donation_authorized(client, db, donor_headers, campaign):
     assert body["amount_kopecks"] == 5000
 
 
-async def test_create_donation_guest_new_user_requires_auth(client, db, campaign):
-    """Guest with unknown email gets AUTH_REQUIRED — must register via OTP first."""
-    email = f"guest-{uuid7().hex[:8]}@test.com"
+async def test_create_donation_unauthenticated_requires_auth(client, db, campaign):
+    """Donations always require an access token. Guests must call /auth/device-register first."""
     resp = await client.post(
         "/api/v1/donations",
         json={
             "campaign_id": str(campaign.id),
             "amount_kopecks": 5000,
-            "email": email,
         },
     )
     assert resp.status_code == 401
     body = resp.json()
     assert body["error"]["code"] == "AUTH_REQUIRED"
-    assert body["error"]["details"].get("is_new") is True
-
-
-async def test_create_donation_guest_existing_user(client, db, campaign, user):
-    resp = await client.post(
-        "/api/v1/donations",
-        json={
-            "campaign_id": str(campaign.id),
-            "amount_kopecks": 5000,
-            "email": user.email,
-        },
-    )
-    assert resp.status_code == 401
-    body = resp.json()
-    assert body["error"]["code"] == "AUTH_REQUIRED"
-
-
-async def test_create_donation_guest_no_email(client, db, campaign):
-    resp = await client.post(
-        "/api/v1/donations",
-        json={
-            "campaign_id": str(campaign.id),
-            "amount_kopecks": 5000,
-        },
-    )
-    assert resp.status_code == 400
-    body = resp.json()
-    assert body["error"]["code"] == "EMAIL_REQUIRED"
 
 
 async def test_create_donation_min_amount(client, db, donor_headers, campaign):

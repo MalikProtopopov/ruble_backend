@@ -14,6 +14,7 @@ DEFAULT_NOTIFICATION_PREFERENCES = {
     "push_on_campaign_change": True,
     "push_daily_streak": False,
     "push_campaign_completed": True,
+    "push_on_donation_reminder": True,
 }
 
 
@@ -21,17 +22,22 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     __tablename__ = "users"
     __table_args__ = (
         Index("idx_users_email", "email", unique=True,
-              postgresql_where="is_deleted = false"),
+              postgresql_where="is_deleted = false AND email IS NOT NULL"),
+        Index("idx_users_device", "device_id", unique=True,
+              postgresql_where="is_deleted = false AND device_id IS NOT NULL"),
         Index("idx_users_role", "role",
               postgresql_where="role = 'patron'"),
         Index("idx_users_streak_push", "next_streak_push_at",
               postgresql_where="next_streak_push_at IS NOT NULL AND is_deleted = false"),
     )
 
-    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(20))
     name: Mapped[str | None] = mapped_column(String(100))
     avatar_url: Mapped[str | None] = mapped_column(String)
+    device_id: Mapped[str | None] = mapped_column(String(64))
+    is_anonymous: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    is_email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", create_type=True),
         nullable=False,
@@ -46,7 +52,7 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     )
     notification_preferences: Mapped[dict] = mapped_column(
         JSONB, nullable=False,
-        server_default='{"push_on_payment": true, "push_on_campaign_change": true, "push_daily_streak": false, "push_campaign_completed": true}',
+        server_default='{"push_on_payment": true, "push_on_campaign_change": true, "push_daily_streak": false, "push_campaign_completed": true, "push_on_donation_reminder": true}',
     )
     # Streak & impact cache
     current_streak_days: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

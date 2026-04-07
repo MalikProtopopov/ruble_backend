@@ -32,6 +32,8 @@ async def create_donation(
         amount_kopecks=body.amount_kopecks,
         user_id=user_id,
         email=str(email) if email else None,
+        payment_method_id=body.payment_method_id,
+        save_payment_method=body.save_payment_method,
     )
 
 
@@ -55,7 +57,7 @@ async def list_donations(
     return paginated_response(result["data"], result["next_cursor"], result["has_more"])
 
 
-@router.get("/{donation_id}", response_model=DonationDetailResponse, summary="Get donation detail", description="Детальная информация о пожертвовании")
+@router.get("/{donation_id}", summary="Get donation detail", description="Детальная информация о пожертвовании")
 async def get_donation_detail(
     donation_id: UUID,
     session: AsyncSession = Depends(get_db_session),

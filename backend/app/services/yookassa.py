@@ -79,6 +79,22 @@ class YooKassaClient:
         if save_payment_method:
             body["save_payment_method"] = True
 
+        # Test / unconfigured environments: skip the real API call.
+        if not self.shop_id or not self.secret_key:
+            fake_id = f"test-{idempotence_key}"
+            logger.info(
+                "yookassa_create_payment_mocked",
+                payment_id=fake_id,
+                amount_kopecks=amount_kopecks,
+                save_payment_method=save_payment_method,
+            )
+            return {
+                "id": fake_id,
+                "status": "pending",
+                "payment_url": None if payment_method_id else f"https://yookassa.test/pay/{fake_id}",
+                "payment_method_id": fake_id if save_payment_method else None,
+            }
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{YOOKASSA_API_URL}/payments",

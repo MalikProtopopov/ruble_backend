@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.security import require_donor
 from app.schemas.subscription import (
+    ActiveSubscriptionResponse,
     BindCardResponse,
     CreateSubscriptionRequest,
     SubscriptionResponse,
@@ -35,6 +36,24 @@ async def list_subscriptions(
 ):
     user_id = UUID(user["sub"])
     return await subscription_service.list_subscriptions(session, user_id)
+
+
+@router.get(
+    "/active",
+    response_model=ActiveSubscriptionResponse,
+    summary="Get the user's active subscription",
+    description=(
+        "Возвращает активную подписку текущего пользователя (если есть). "
+        "Используется на экране 'Спасибо' для показа CTA «Оформить подписку»."
+    ),
+)
+async def get_active_subscription(
+    session: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(require_donor),
+):
+    user_id = UUID(user["sub"])
+    sub = await subscription_service.get_active_for_user(session, user_id)
+    return ActiveSubscriptionResponse(has_active=sub is not None, subscription=sub)
 
 
 @router.patch("/{subscription_id}", response_model=SubscriptionResponse, summary="Update subscription", description="Обновление параметров подписки")

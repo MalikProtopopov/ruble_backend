@@ -16,6 +16,7 @@ from app.models.payout_record import PayoutRecord
 from app.models.patron_payment_link import PatronPaymentLink
 from app.models.notification_log import NotificationLog
 from app.models.media_asset import MediaAsset
+from app.models.payment_method import PaymentMethod
 
 __all__ = [
     "Base",
@@ -40,4 +41,5 @@ __all__ = [
     "PatronPaymentLink",
     "NotificationLog",
     "MediaAsset",
+    "PaymentMethod",
 ]

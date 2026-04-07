@@ -33,6 +33,9 @@ tags_metadata = [
     {"name": "admin-achievements", "description": "Управление достижениями"},
     {"name": "admin-logs", "description": "Логи системы"},
     {"name": "admin-admins", "description": "Управление администраторами"},
+    {"name": "admin-documents", "description": "Управление документами"},
+    {"name": "documents", "description": "Публичные документы"},
+    {"name": "payment-methods", "description": "Сохранённые способы оплаты"},
 ]
 
 
@@ -94,6 +97,8 @@ def create_app() -> FastAPI:
     from app.api.v1.public.impact import router as impact_router
     from app.api.v1.public.thanks import router as thanks_router
     from app.api.v1.public.patron import router as patron_router
+    from app.api.v1.public.documents import router as public_documents_router
+    from app.api.v1.public.payment_methods import router as payment_methods_router
     from app.api.v1.webhooks import router as webhooks_router
 
     app.include_router(health_router, prefix="/api/v1")
@@ -107,6 +112,8 @@ def create_app() -> FastAPI:
     app.include_router(impact_router, prefix="/api/v1/impact", tags=["impact"])
     app.include_router(thanks_router, prefix="/api/v1/thanks", tags=["thanks"])
     app.include_router(patron_router, prefix="/api/v1/patron/payment-links", tags=["patron"])
+    app.include_router(public_documents_router, prefix="/api/v1/documents", tags=["documents"])
+    app.include_router(payment_methods_router, prefix="/api/v1/payment-methods", tags=["payment-methods"])
     app.include_router(webhooks_router, prefix="/api/v1/webhooks", tags=["webhooks"])
 
     # Admin routers

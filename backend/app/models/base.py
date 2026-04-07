@@ -159,6 +159,12 @@ class NotificationStatus(str, enum.Enum):
     failed = "failed"
 
 
+class DocumentStatus(str, enum.Enum):
+    draft = "draft"
+    published = "published"
+    archived = "archived"
+
+
 class MediaAssetType(str, enum.Enum):
     video = "video"
     document = "document"

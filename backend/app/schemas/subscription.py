@@ -35,6 +35,11 @@ class SubscriptionResponse(OrmBase):
     created_at: datetime
 
 
+class ActiveSubscriptionResponse(BaseModel):
+    has_active: bool
+    subscription: SubscriptionResponse | None = None
+
+
 class BindCardResponse(BaseModel):
     payment_url: str
     confirmation_type: str = "redirect"

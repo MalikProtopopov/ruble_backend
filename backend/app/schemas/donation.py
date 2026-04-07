@@ -7,7 +7,9 @@ from app.schemas.base import OrmBase
 class CreateDonationRequest(BaseModel):
     campaign_id: UUID
     amount_kopecks: int
-    email: EmailStr | None = None  # Required if no Bearer token
+    email: EmailStr | None = None  # Deprecated: clients must use device-register
+    payment_method_id: UUID | None = None  # Use a previously saved card
+    save_payment_method: bool = False  # Save the card after this payment
 
 
 class DonationResponse(OrmBase):
@@ -24,6 +26,9 @@ class DonationListItem(OrmBase):
     id: UUID
     campaign_id: UUID
     campaign_title: str | None = None
+    campaign_status: str | None = None
+    campaign_thumbnail_url: str | None = None
+    foundation_name: str | None = None
     amount_kopecks: int
     status: str
     source: str
@@ -34,8 +39,11 @@ class DonationDetailResponse(OrmBase):
     id: UUID
     campaign_id: UUID
     campaign_title: str | None = None
+    campaign_status: str | None = None
+    campaign_thumbnail_url: str | None = None
     foundation_id: UUID
     foundation_name: str | None = None
+    foundation_logo_url: str | None = None
     amount_kopecks: int
     status: str
     source: str

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     JWT_ISSUER: str = "porubly"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    JWT_REFRESH_TOKEN_EXPIRE_DAYS_ANONYMOUS: int = 180
+
+    # Donations
+    DONATION_COOLDOWN_HOURS: int = 8
 
     # CORS
     CORS_ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
@@ -37,6 +41,7 @@ class Settings(BaseSettings):
 
     # Notifications
     NOTIFICATION_PROVIDER: str = "mock"  # mock | firebase
+    FIREBASE_CREDENTIALS_PATH: str = ""  # path to service account JSON
 
     # Email (OTP)
     EMAIL_PROVIDER: str = "mock"  # mock | sendgrid | smtp

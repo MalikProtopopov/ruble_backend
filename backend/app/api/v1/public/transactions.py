@@ -41,7 +41,7 @@ async def list_transactions(
     return paginated_response(result["data"], result["next_cursor"], result["has_more"])
 
 
-@router.get("/{transaction_id}", response_model=TransactionDetailResponse, summary="Get transaction detail", description="Детальная информация о транзакции")
+@router.get("/{transaction_id}", summary="Get transaction detail", description="Детальная информация о транзакции")
 async def get_transaction_detail(
     transaction_id: UUID,
     session: AsyncSession = Depends(get_db_session),

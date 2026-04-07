@@ -1,5 +1,6 @@
 """JWT authentication and role-based access control."""
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 from uuid import UUID
@@ -32,15 +33,17 @@ def create_access_token(subject: UUID, role: str) -> str:
     return jwt.encode(payload, _read_key(settings.JWT_PRIVATE_KEY_PATH), algorithm="RS256")
 
 
-def create_refresh_token(subject: UUID) -> str:
+def create_refresh_token(subject: UUID, *, ttl_days: int | None = None) -> str:
     now = datetime.now(timezone.utc)
+    days = ttl_days if ttl_days is not None else settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS
     payload = {
         "sub": str(subject),
         "type": "refresh",
+        "jti": secrets.token_urlsafe(16),  # ensures uniqueness even within the same second
         "aud": settings.JWT_AUDIENCE,
         "iss": settings.JWT_ISSUER,
         "iat": now,
-        "exp": now + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS),
+        "exp": now + timedelta(days=days),
     }
     return jwt.encode(payload, _read_key(settings.JWT_PRIVATE_KEY_PATH), algorithm="RS256")
 
