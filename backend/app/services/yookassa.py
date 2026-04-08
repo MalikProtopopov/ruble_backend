@@ -67,10 +67,16 @@ class YooKassaClient:
         }
 
         if payment_method_id:
-            # Recurring payment with saved card — no user confirmation needed
             body["payment_method_id"] = payment_method_id
-        else:
-            # Interactive payment — user needs to confirm on YooKassa page
+
+        # Always pass confirmation.return_url. For interactive payments (no
+        # saved card) this is where YooKassa redirects after the user fills
+        # the form. For autopayments with a saved card it's still needed
+        # because the issuer may require 3DS — without it the user is
+        # bounced to YooKassa's default fallback page instead of our app.
+        # YooKassa rejects custom URI schemes (porublyu://...), so we point
+        # to an HTTPS handler page which then opens the deep link in JS.
+        if return_url:
             body["confirmation"] = {
                 "type": "redirect",
                 "return_url": return_url,

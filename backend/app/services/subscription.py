@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.base import uuid7
 
+from app.core.config import settings
 from app.core.exceptions import BusinessLogicError, NotFoundError
 from app.core.pagination import decode_cursor, encode_cursor
 from app.models import Campaign, Foundation, Subscription, Transaction
@@ -176,12 +177,18 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
     session.add(txn)
     await session.flush()
 
-    # Create YooKassa payment with save_payment_method=true for recurring billing
+    # Create YooKassa payment with save_payment_method=true for recurring billing.
+    # YooKassa rejects custom URI schemes — we use an HTTPS handler that opens
+    # the porublyu:// deep link via JS (see app/api/v1/payment_result.py).
+    return_url = (
+        f"{settings.PUBLIC_API_URL.rstrip('/')}/payment-result"
+        f"?transaction_id={txn.id}&subscription_id={sub.id}"
+    )
     payment = await yookassa_client.create_payment(
         amount_kopecks=amount,
         description=description[:128],
         idempotence_key=idempotence_key,
-        return_url="porublyu://payment-result",
+        return_url=return_url,
         save_payment_method=True,
         metadata={
             "type": "transaction",

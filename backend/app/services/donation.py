@@ -132,12 +132,17 @@ async def create_donation(
     session.add(donation)
     await session.flush()
 
+    # YooKassa rejects custom URI schemes in return_url, so we use an HTTPS
+    # handler page on our backend that opens the porublyu:// deep link via JS.
+    # See: GET /payment-result in app/api/v1/payment_result.py
+    return_url = f"{settings.PUBLIC_API_URL.rstrip('/')}/payment-result?donation_id={donation.id}"
+
     # Create YooKassa payment
     payment = await yookassa_client.create_payment(
         amount_kopecks=amount_kopecks,
         description=f"Пожертвование: {campaign.title}"[:128],
         idempotence_key=idempotence_key,
-        return_url="porublyu://payment-result",
+        return_url=return_url,
         save_payment_method=save_payment_method,
         payment_method_id=provider_pm_id,
         metadata={

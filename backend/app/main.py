@@ -129,6 +129,11 @@ def create_app() -> FastAPI:
     from app.api.v1.media_proxy import router as media_proxy_router
     app.include_router(media_proxy_router)
 
+    # Post-payment HTTPS landing page that bridges YooKassa redirect → app
+    # deep link. Mounted at root because YooKassa redirects user browsers here.
+    from app.api.v1.payment_result import router as payment_result_router
+    app.include_router(payment_result_router)
+
     return app
 
 
