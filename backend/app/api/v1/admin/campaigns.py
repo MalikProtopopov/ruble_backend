@@ -33,6 +33,7 @@ from app.services.allocation import reallocate_campaign_subscriptions, reallocat
 from app.services.media_asset_resolve import THUMBNAIL_OR_LOGO, VIDEO_ONLY, resolve_public_url
 from app.services.notification import send_push
 from app.services.payment import check_campaign_auto_complete
+from app.services.video_thumbnail import generate_thumbnail_for_video_url
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -94,13 +95,19 @@ async def create_campaign(
     if foundation is None:
         raise NotFoundError(message="Фонд не найден")
 
+    # Auto-generate thumbnail from the first frame of the video if the admin
+    # didn't provide one explicitly. Best-effort — failures don't block creation.
+    thumbnail_url = body.thumbnail_url
+    if body.video_url and not thumbnail_url:
+        thumbnail_url = await generate_thumbnail_for_video_url(body.video_url)
+
     campaign = await campaign_repo.create(
         session,
         foundation_id=body.foundation_id,
         title=body.title,
         description=body.description,
         video_url=body.video_url,
-        thumbnail_url=body.thumbnail_url,
+        thumbnail_url=thumbnail_url,
         goal_amount=body.goal_amount,
         urgency_level=body.urgency_level,
         is_permanent=body.is_permanent,
@@ -158,6 +165,20 @@ async def update_campaign(
             session, aid, allowed_types=THUMBNAIL_OR_LOGO,
         )
 
+    # Auto-fill thumbnail from the first frame of the (new or existing) video
+    # if the resulting state has a video but no thumbnail. Triggers when:
+    #   - admin sets video_url without setting thumbnail_url, OR
+    #   - admin clears thumbnail_url while leaving video_url, OR
+    #   - existing campaign already had this state (handled by backfill endpoint).
+    new_video = update_data.get("video_url", campaign.video_url)
+    explicit_thumb = (
+        update_data["thumbnail_url"] if "thumbnail_url" in update_data else campaign.thumbnail_url
+    )
+    if new_video and not explicit_thumb:
+        generated = await generate_thumbnail_for_video_url(new_video)
+        if generated:
+            update_data["thumbnail_url"] = generated
+
     campaign = await campaign_repo.update(session, campaign, update_data)
     logger.info("campaign_updated", campaign_id=str(campaign_id), admin_id=admin["sub"])
     return _serialize_campaign(campaign)
@@ -178,6 +199,59 @@ async def _transition(session, campaign_id, target_status: str, admin):
             message=f"Переход из '{campaign.status.value}' в '{target_status}' невозможен",
         )
     return campaign
+
+
+@router.post(
+    "/backfill-thumbnails",
+    summary="Backfill thumbnails for campaigns missing them",
+    description=(
+        "Один раз пройти по всем кампаниям с непустым `video_url` и пустым "
+        "`thumbnail_url`, извлечь первый кадр через ffmpeg, загрузить в S3 и "
+        "записать ссылку. Идемпотентно — повторный запуск пропустит уже "
+        "заполненные. Возвращает количество обработанных и список ошибок."
+    ),
+)
+async def backfill_thumbnails(
+    limit: int = Query(default=100, ge=1, le=500, description="Максимум кампаний за один вызов"),
+    admin: dict = Depends(require_admin),
+    session: AsyncSession = Depends(get_db_session),
+):
+    from app.models import Campaign
+
+    candidates = (await session.execute(
+        select(Campaign)
+        .where(
+            Campaign.video_url.isnot(None),
+            (Campaign.thumbnail_url.is_(None)) | (Campaign.thumbnail_url == ""),
+        )
+        .limit(limit)
+    )).scalars().all()
+
+    filled: list[str] = []
+    failed: list[dict] = []
+    for c in candidates:
+        url = await generate_thumbnail_for_video_url(c.video_url)
+        if url:
+            c.thumbnail_url = url
+            filled.append(str(c.id))
+        else:
+            failed.append({"id": str(c.id), "video_url": c.video_url})
+    await session.flush()
+
+    logger.info(
+        "campaigns_thumbnails_backfilled",
+        admin_id=admin["sub"],
+        filled=len(filled),
+        failed=len(failed),
+        scanned=len(candidates),
+    )
+    return {
+        "scanned": len(candidates),
+        "filled": len(filled),
+        "failed": len(failed),
+        "filled_ids": filled,
+        "failed_items": failed,
+    }
 
 
 @router.post(
