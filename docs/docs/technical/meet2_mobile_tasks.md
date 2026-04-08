@@ -35,17 +35,71 @@
 
 ## 2. Главный экран: список сборов
 
-### 2.1. Новые поля в карточке сбора
-Бэкенд начнёт возвращать в `GET /campaigns` (для авторизованных):
-- `donated_today: bool`
-- `last_donation: { id, amount_kopecks, created_at } | null`
-- `next_available_at: ISO datetime | null`
-- `has_any_donation: bool`
+### 2.1. Поля в карточке сбора
+Бэкенд возвращает в `GET /campaigns` и `GET /campaigns/{id}` (для авторизованных):
 
-### 2.2. Визуал кнопки «Помочь»
-- Если `donated_today == true` → кнопка в состоянии «Уже помог сегодня» (галочка, неактивный/disabled стиль).
-- Если `next_available_at > now` → кнопка disabled с таймером «Можно через Xч Yм» (вычисляется на клиенте, обновляется раз в минуту).
-- Иначе обычная активная «Поддержать».
+| Поле | Тип | Что значит |
+|---|---|---|
+| `donated_today` | `bool` | Был ли донат в этот сбор сегодня (по таймзоне юзера, считает бэкенд) |
+| `has_any_donation` | `bool` | Был ли вообще хоть один донат |
+| `last_donation` | `{ id, amount_kopecks, created_at, status } \| null` | Последний успешный донат юзера в этот сбор |
+| `next_available_at` | `ISO datetime UTC \| null` | **Абсолютный момент** когда снова можно донатить. Null если cooldown не активен. |
+| **`can_donate_now`** | `bool \| null` | **Главное поле для UI**: можно ли прямо сейчас. Null для гостей. |
+| **`next_available_in_seconds`** | `int \| null` | Сколько секунд осталось до конца cooldown. Null если `can_donate_now=true`. |
+| **`server_time_utc`** | `ISO datetime UTC \| null` | Серверное «сейчас» — точка отсчёта для таймера. |
+| `cooldown_hours` | `int` | Длина cooldown в часах (только в `/campaigns/{id}`). Сейчас 8. |
+
+### 2.2. Визуал кнопки «Помочь» — **используй серверные поля, не парси datetime'ы**
+
+```dart
+// ✅ ПРАВИЛЬНО — без парсинга timestamps, без device clock
+if (campaign.canDonateNow == true) {
+  // активная "Поддержать"
+} else if (campaign.donatedToday == true) {
+  // "Уже помог сегодня" — галочка, disabled
+} else if (campaign.nextAvailableInSeconds != null) {
+  // таймер с обратным отсчётом, стартует с next_available_in_seconds
+  // обновляется локально каждую секунду через Timer.periodic
+}
+```
+
+```dart
+// ❌ НЕПРАВИЛЬНО — баги с timezone, device clock, парсингом 'Z'
+final next = DateTime.parse(campaign.nextAvailableAt);
+final diff = next.difference(DateTime.now());  // ⚠️ device clock vs UTC, локаль
+if (diff.inMinutes <= 0) ...
+```
+
+**Почему серверные поля:** мы наблюдали баг на проде — мобилка показывала «можно через 0 м» при реально оставшихся 4 часах из-за того что `DateTime.parse` без обработки `Z` + `DateTime.now()` (локальное время) вместо `.toUtc()` давали отрицательную разницу, форматтер выводил `0 м`.
+
+### 2.2.1. Локальный таймер обратного отсчёта (если хочешь обновлять каждую секунду)
+
+Стартуй таймер от `next_available_in_seconds` (НЕ от `next_available_at`):
+
+```dart
+// При получении ответа сервера
+int secondsLeft = campaign.nextAvailableInSeconds ?? 0;
+Timer.periodic(Duration(seconds: 1), (t) {
+  if (secondsLeft <= 0) {
+    t.cancel();
+    setState(() => canDonate = true);
+    return;
+  }
+  setState(() => secondsLeft -= 1);
+});
+
+// Форматирование "Xч Yм" / "Yм Zс"
+String formatRemaining(int seconds) {
+  final h = seconds ~/ 3600;
+  final m = (seconds % 3600) ~/ 60;
+  final s = seconds % 60;
+  if (h > 0) return '${h}ч ${m}м';
+  if (m > 0) return '${m}м';
+  return '${s}с';
+}
+```
+
+`server_time_utc` пригодится если ты решишь делать таймер не «обратный отсчёт от секунд», а «считать дельту до фиксированного момента» — тогда вместо `DateTime.now()` используй `server_time_utc + локальное смещение с момента получения ответа` (это безопасно если у юзера сбито системное время).
 
 ### 2.3. Сортировка
 Параметр `sort` в `GET /campaigns` (`default` / `helped_today` / `helped_ever`). Добавить переключатель/табы в UI. По умолчанию — `helped_today`.
@@ -68,13 +122,30 @@
 ## 4. Экран сбора и cooldown
 
 ### 4.1. Обработка 429
-При `POST /donations` бэкенд может вернуть `429` с телом `{ error: "donation_cooldown", retry_after, next_available_at }`.
+При `POST /donations` бэкенд может вернуть `429` с телом:
 
-- Показать дружелюбный bottom sheet «Спасибо! В этот сбор можно снова помочь через Xч Yм».
-- Не дублировать как ошибку.
+```json
+{
+  "error": {
+    "code": "DONATION_COOLDOWN",
+    "message": "В этот сбор можно снова помочь позже.",
+    "details": {
+      "next_available_in_seconds": 15383,
+      "retry_after": 15383,
+      "next_available_at": "2026-04-08T19:22:35.246191+00:00",
+      "server_time_utc": "2026-04-08T15:06:11.953415+00:00",
+      "last_donation_id": "..."
+    }
+  }
+}
+```
+
+**Используй `next_available_in_seconds`** для bottom sheet «Спасибо! В этот сбор можно снова помочь через Xч Yм». Не парси `next_available_at` локально (см. 2.2 — те же причины).
+
+`retry_after` оставлен как legacy-алиас на тот же `int` для обратной совместимости. В новом коде используй `next_available_in_seconds`.
 
 ### 4.2. Превентивная блокировка
-Не давать тапнуть кнопку «Помочь», если из списка уже известен `next_available_at > now` (см. 2.2). 429 — последняя линия защиты.
+Не давать тапнуть кнопку «Помочь», если из списка уже известно `can_donate_now == false` (см. 2.2). 429 — последняя линия защиты.
 
 ---
 

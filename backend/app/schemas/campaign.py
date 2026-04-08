@@ -51,11 +51,24 @@ class CampaignListItem(OrmBase):
     is_permanent: bool
     ends_at: datetime | None
     created_at: datetime
-    # User-specific fields (null for guests / anonymous tokens)
+    # User-specific fields (null for guests / unauthenticated requests)
     donated_today: bool | None = None
     has_any_donation: bool | None = None
     last_donation: LastDonationBrief | None = None
+    # Absolute moment in UTC when the user can donate again. Null if cooldown
+    # is not active (no previous donation OR cooldown already expired).
     next_available_at: datetime | None = None
+    # Server-computed cooldown helpers — mobile must use these instead of
+    # parsing next_available_at locally to avoid timezone parsing bugs:
+    #   - can_donate_now: True if cooldown is over OR there was no donation
+    #   - next_available_in_seconds: seconds left until cooldown expires (>= 0)
+    #     OR null when can_donate_now=true
+    #   - server_time_utc: server "now" at the moment this response was built —
+    #     mobile should use it as the reference point for any countdown timer
+    #     instead of the device clock.
+    can_donate_now: bool | None = None
+    next_available_in_seconds: int | None = None
+    server_time_utc: datetime | None = None
 
 
 class CampaignDetailResponse(CampaignListItem):

@@ -1,5 +1,6 @@
 """Public campaign endpoints (no auth required for list/detail/documents)."""
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -43,9 +44,21 @@ async def _resolve_optional_user(
     return result.scalar_one_or_none()
 
 
-def _serialize_campaign_item(campaign, *, donated_today=None, has_any_donation=None,
-                             last_donation=None, next_available_at=None) -> CampaignListItem:
-    """Build a CampaignListItem from a Campaign ORM object plus optional per-user fields."""
+def _serialize_campaign_item(
+    campaign,
+    *,
+    donated_today=None,
+    has_any_donation=None,
+    last_donation=None,
+    next_available_at=None,
+    is_authenticated: bool = False,
+) -> CampaignListItem:
+    """Build a CampaignListItem from a Campaign ORM object plus optional per-user fields.
+
+    Computes the server-side cooldown helpers (can_donate_now,
+    next_available_in_seconds, server_time_utc) so the mobile client never has
+    to parse timestamps or compute time deltas locally.
+    """
     last_dto = None
     if last_donation is not None:
         last_dto = LastDonationBrief(
@@ -54,6 +67,26 @@ def _serialize_campaign_item(campaign, *, donated_today=None, has_any_donation=N
             created_at=last_donation["created_at"],
             status=last_donation["status"],
         )
+
+    # Server-computed cooldown helpers. Only populated for authenticated
+    # requests — for guests they stay None, mirroring the other per-user fields.
+    can_donate_now: bool | None = None
+    next_available_in_seconds: int | None = None
+    server_time_utc: datetime | None = None
+    if is_authenticated:
+        server_time_utc = datetime.now(timezone.utc)
+        if next_available_at is None:
+            can_donate_now = True
+        else:
+            delta = (next_available_at - server_time_utc).total_seconds()
+            if delta <= 0:
+                # Cooldown already expired between query and serialization.
+                can_donate_now = True
+                next_available_in_seconds = None
+            else:
+                can_donate_now = False
+                next_available_in_seconds = int(delta)
+
     return CampaignListItem(
         id=campaign.id,
         foundation_id=campaign.foundation_id,
@@ -73,6 +106,9 @@ def _serialize_campaign_item(campaign, *, donated_today=None, has_any_donation=N
         has_any_donation=has_any_donation,
         last_donation=last_dto,
         next_available_at=next_available_at,
+        can_donate_now=can_donate_now,
+        next_available_in_seconds=next_available_in_seconds,
+        server_time_utc=server_time_utc,
     )
 
 
@@ -85,6 +121,7 @@ def _serialize_list_result(result: dict) -> list[CampaignListItem]:
                 has_any_donation=row["has_any_donation"],
                 last_donation=row["last_donation"],
                 next_available_at=row["next_available_at"],
+                is_authenticated=True,
             )
             for row in result["data"]
         ]
@@ -136,6 +173,7 @@ async def list_campaigns_today(
             has_any_donation=row["has_any_donation"],
             last_donation=row["last_donation"],
             next_available_at=row["next_available_at"],
+            is_authenticated=True,
         )
         for row in rows
     ]
@@ -166,6 +204,24 @@ async def get_campaign(
     if state["last_donation"] is not None:
         last_dto = LastDonationBrief(**state["last_donation"])
 
+    # Server-computed cooldown helpers — same logic as the list endpoint, but
+    # CampaignDetailResponse is built manually here, so we duplicate the math.
+    can_donate_now: bool | None = None
+    next_available_in_seconds: int | None = None
+    server_time_utc: datetime | None = None
+    if user is not None:
+        server_time_utc = datetime.now(timezone.utc)
+        next_at = state["next_available_at"]
+        if next_at is None:
+            can_donate_now = True
+        else:
+            delta = (next_at - server_time_utc).total_seconds()
+            if delta <= 0:
+                can_donate_now = True
+            else:
+                can_donate_now = False
+                next_available_in_seconds = int(delta)
+
     return CampaignDetailResponse(
         id=campaign.id,
         foundation_id=campaign.foundation_id,
@@ -185,6 +241,9 @@ async def get_campaign(
         has_any_donation=state["has_any_donation"],
         last_donation=last_dto,
         next_available_at=state["next_available_at"],
+        can_donate_now=can_donate_now,
+        next_available_in_seconds=next_available_in_seconds,
+        server_time_utc=server_time_utc,
         video_url=campaign.video_url,
         closed_early=campaign.closed_early,
         close_note=campaign.close_note,

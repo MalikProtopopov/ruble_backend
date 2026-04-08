@@ -51,15 +51,20 @@ async def _check_donation_cooldown(
     if last is None:
         return
 
+    now = datetime.now(timezone.utc)
     next_available = last.created_at + cooldown
-    retry_after = max(1, int((next_available - datetime.now(timezone.utc)).total_seconds()))
+    retry_after = max(1, int((next_available - now).total_seconds()))
     raise AppError(
         code="DONATION_COOLDOWN",
         message="В этот сбор можно снова помочь позже.",
         status_code=429,
         details={
+            # Both names for backwards compat — prefer next_available_in_seconds
+            # in new mobile code, retry_after is the legacy alias.
             "retry_after": retry_after,
+            "next_available_in_seconds": retry_after,
             "next_available_at": next_available.isoformat(),
+            "server_time_utc": now.isoformat(),
             "last_donation_id": str(last.id),
         },
     )
