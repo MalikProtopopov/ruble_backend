@@ -11,6 +11,7 @@ from app.api.v1.admin.achievements import router as achievements_router
 from app.api.v1.admin.logs import router as logs_router
 from app.api.v1.admin.admins import router as admins_router
 from app.api.v1.admin.documents import router as documents_router
+from app.api.v1.admin.payment_methods import router as payment_methods_router
 
 router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["admin-auth"])
@@ -24,3 +25,4 @@ router.include_router(achievements_router, prefix="/achievements", tags=["admin-
 router.include_router(logs_router, prefix="/logs", tags=["admin-logs"])
 router.include_router(admins_router, prefix="/admins", tags=["admin-admins"])
 router.include_router(documents_router, prefix="/documents", tags=["admin-documents"])
+router.include_router(payment_methods_router, prefix="/payment-methods", tags=["admin-payment-methods"])

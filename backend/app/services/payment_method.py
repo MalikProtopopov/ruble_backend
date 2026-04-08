@@ -363,3 +363,167 @@ async def recover_all_orphaned_accounts_for_user(
     return await _recover_by_fingerprints(
         session, fingerprints=fingerprints, current_user_id=current_user_id
     )
+
+
+# ---------------------------------------------------------------------------
+# Maintenance helpers (admin / one-shot)
+# ---------------------------------------------------------------------------
+
+
+async def backfill_fingerprints_from_yookassa(session: AsyncSession) -> dict:
+    """For every PaymentMethod with NULL fingerprint, fetch the original payment
+    from YooKassa to extract first6/last4/expiry and compute the fingerprint.
+
+    `provider_pm_id` for cards saved via the first donation equals the YooKassa
+    payment.id of that donation, so `get_payment(provider_pm_id)` returns the
+    payment object that contains the saved `payment_method.card` data.
+
+    Best-effort: a YooKassa API failure for one PM is logged and skipped.
+    """
+    from app.services.yookassa import yookassa_client
+
+    rows = (
+        await session.execute(
+            select(PaymentMethod).where(
+                PaymentMethod.is_deleted == False,  # noqa: E712
+                PaymentMethod.card_fingerprint.is_(None),
+                PaymentMethod.provider == "yookassa",
+            )
+        )
+    ).scalars().all()
+
+    filled = 0
+    failed: list[dict] = []
+    for pm in rows:
+        try:
+            payment = await yookassa_client.get_payment(pm.provider_pm_id)
+        except Exception as exc:
+            failed.append({"pm_id": str(pm.id), "error": type(exc).__name__})
+            logger.warning(
+                "fingerprint_backfill_yookassa_error",
+                pm_id=str(pm.id),
+                provider_pm_id=pm.provider_pm_id,
+                error=type(exc).__name__,
+            )
+            continue
+
+        card = (payment.get("payment_method") or {}).get("card") or {}
+        fp = build_card_fingerprint(
+            first6=card.get("first6"),
+            last4=card.get("last4"),
+            exp_month=card.get("expiry_month"),
+            exp_year=card.get("expiry_year"),
+        )
+        if fp is None:
+            failed.append({"pm_id": str(pm.id), "error": "no_card_data"})
+            logger.warning(
+                "fingerprint_backfill_no_card_data",
+                pm_id=str(pm.id),
+                provider_pm_id=pm.provider_pm_id,
+            )
+            continue
+
+        pm.card_fingerprint = fp
+        # Also backfill last4/type if missing.
+        if not pm.card_last4 and card.get("last4"):
+            pm.card_last4 = card["last4"]
+        if not pm.card_type and card.get("card_type"):
+            pm.card_type = card["card_type"]
+        filled += 1
+
+    await session.flush()
+    logger.info(
+        "fingerprint_backfill_done",
+        scanned=len(rows),
+        filled=filled,
+        failed=len(failed),
+    )
+    return {
+        "scanned": len(rows),
+        "filled": filled,
+        "failed": len(failed),
+        "failed_items": failed,
+    }
+
+
+async def dedupe_payment_methods(session: AsyncSession) -> dict:
+    """Soft-delete duplicate payment methods per user.
+
+    Two PMs are considered duplicates if they share `card_fingerprint`. The
+    NEWEST one is kept (most recently saved → most likely the one the user
+    expects to be the active card). Older duplicates are soft-deleted. After
+    pruning we ensure exactly one PM per user is `is_default=true`.
+
+    Idempotent — running twice on a clean state is a no-op.
+    """
+    # Pull all non-deleted PMs with non-null fingerprint, grouped per user.
+    pms = (
+        await session.execute(
+            select(PaymentMethod)
+            .where(
+                PaymentMethod.is_deleted == False,  # noqa: E712
+                PaymentMethod.card_fingerprint.isnot(None),
+            )
+            .order_by(PaymentMethod.user_id, PaymentMethod.created_at.desc())
+        )
+    ).scalars().all()
+
+    # Bucket per (user_id, fingerprint).
+    from collections import defaultdict
+    from datetime import datetime, timezone
+
+    buckets: dict[tuple, list[PaymentMethod]] = defaultdict(list)
+    for pm in pms:
+        buckets[(pm.user_id, pm.card_fingerprint)].append(pm)
+
+    soft_deleted = 0
+    affected_users: set = set()
+    now = datetime.now(timezone.utc)
+    for (user_id, _fp), group in buckets.items():
+        if len(group) <= 1:
+            continue
+        # group is already ordered by created_at DESC; keep [0], drop the rest.
+        keep = group[0]
+        for dup in group[1:]:
+            dup.is_deleted = True
+            dup.deleted_at = now
+            dup.is_default = False
+            soft_deleted += 1
+        # Make sure the kept one carries is_default if the user has nothing
+        # else marked default. We'll resolve the per-user default below.
+        affected_users.add(user_id)
+
+    # For each affected user: ensure exactly one default PM survives.
+    for user_id in affected_users:
+        live = (
+            await session.execute(
+                select(PaymentMethod)
+                .where(
+                    PaymentMethod.user_id == user_id,
+                    PaymentMethod.is_deleted == False,  # noqa: E712
+                )
+                .order_by(PaymentMethod.created_at.desc())
+            )
+        ).scalars().all()
+        if not live:
+            continue
+        seen_default = False
+        for pm in live:
+            if pm.is_default and not seen_default:
+                seen_default = True
+                continue
+            if pm.is_default:
+                pm.is_default = False
+        if not seen_default:
+            live[0].is_default = True
+
+    await session.flush()
+    logger.info(
+        "payment_methods_deduped",
+        soft_deleted=soft_deleted,
+        affected_users=len(affected_users),
+    )
+    return {
+        "soft_deleted": soft_deleted,
+        "affected_users": len(affected_users),
+    }
