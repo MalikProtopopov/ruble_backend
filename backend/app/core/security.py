@@ -19,13 +19,13 @@ def _read_key(path: str) -> str:
         return f.read()
 
 
-def create_access_token(subject: UUID, role: str) -> str:
+def create_access_token(subject: UUID, role: str, *, audience: str | None = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": str(subject),
         "role": role,
         "type": "access",
-        "aud": settings.JWT_AUDIENCE,
+        "aud": audience or settings.JWT_AUDIENCE,
         "iss": settings.JWT_ISSUER,
         "iat": now,
         "exp": now + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
@@ -48,12 +48,12 @@ def create_refresh_token(subject: UUID, *, ttl_days: int | None = None) -> str:
     return jwt.encode(payload, _read_key(settings.JWT_PRIVATE_KEY_PATH), algorithm="RS256")
 
 
-def decode_token(token: str) -> dict:
+def decode_token(token: str, *, audience: str | None = None) -> dict:
     return jwt.decode(
         token,
         _read_key(settings.JWT_PUBLIC_KEY_PATH),
         algorithms=["RS256"],
-        audience=settings.JWT_AUDIENCE,
+        audience=audience or settings.JWT_AUDIENCE,
         issuer=settings.JWT_ISSUER,
     )
 
@@ -86,14 +86,23 @@ async def require_patron(user: dict = Depends(get_current_user)):
 async def require_admin(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ):
-    """Admin authentication — separate JWT secret."""
-    # TODO: implement admin-specific JWT verification
+    """Admin authentication — isolated token contour.
+
+    Admin access tokens are signed with a dedicated audience (`JWT_ADMIN_AUDIENCE`)
+    and verified against it here. A regular user/donor token (audience
+    `JWT_AUDIENCE`) therefore fails signature/audience validation on admin
+    endpoints and vice-versa — the two contours cannot be crossed even if a
+    `role` claim were tampered with. (A fully separate signing keypair can be
+    layered on later via config without touching call sites.)
+    """
     if credentials is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
-        payload = decode_token(credentials.credentials)
-        if payload.get("role") != "admin":
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
-        return payload
+        payload = decode_token(credentials.credentials, audience=settings.JWT_ADMIN_AUDIENCE)
     except jwt.PyJWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+    return payload

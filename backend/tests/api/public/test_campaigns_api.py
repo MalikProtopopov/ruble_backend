@@ -92,13 +92,13 @@ async def test_get_campaign_completed_with_close_note(client, db, foundation):
 async def test_get_documents(client, db, campaign):
     doc1 = CampaignDocument(
         id=uuid7(), campaign_id=campaign.id,
-        title="Report", file_url="https://cdn.example.com/report.pdf", sort_order=1,
+        title="Report", slug="report", file_url="https://cdn.example.com/report.pdf", sort_order=1,
     )
     db.add(doc1)
     await db.flush()
     doc2 = CampaignDocument(
         id=uuid7(), campaign_id=campaign.id,
-        title="Invoice", file_url="https://cdn.example.com/invoice.pdf", sort_order=0,
+        title="Invoice", slug="invoice", file_url="https://cdn.example.com/invoice.pdf", sort_order=0,
     )
     db.add(doc2)
     await db.flush()
@@ -110,6 +110,28 @@ async def test_get_documents(client, db, campaign):
     # Should be ordered by sort_order
     assert docs[0]["title"] == "Invoice"
     assert docs[1]["title"] == "Report"
+    assert docs[0]["slug"] == "invoice"
+
+
+async def test_get_document_by_slug(client, db, campaign):
+    doc = CampaignDocument(
+        id=uuid7(), campaign_id=campaign.id,
+        title="Report", slug="report", file_url="https://cdn.example.com/report.pdf", sort_order=0,
+    )
+    db.add(doc)
+    await db.flush()
+
+    resp = await client.get(f"/api/v1/campaigns/{str(campaign.id)}/documents/report")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["slug"] == "report"
+    assert body["title"] == "Report"
+    assert body["file_url"] == "https://cdn.example.com/report.pdf"
+
+
+async def test_get_document_by_slug_not_found(client, campaign):
+    resp = await client.get(f"/api/v1/campaigns/{str(campaign.id)}/documents/missing")
+    assert resp.status_code == 404
 
 
 # ---- GET /api/v1/campaigns/{id}/share ----

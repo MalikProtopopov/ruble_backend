@@ -17,6 +17,7 @@ class FoundationBriefWithUrl(FoundationBrief):
 class CampaignDocumentResponse(OrmBase):
     id: UUID
     title: str
+    slug: str
     file_url: str
     sort_order: int
 

@@ -12,5 +12,5 @@ class NotificationLogResponse(OrmBase):
     body: str
     data: dict | None = None
     status: str
-    provider_response: str | None = None
+    provider_response: dict | None = None
     created_at: datetime

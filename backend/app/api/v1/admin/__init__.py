@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.admin.auth import router as auth_router
 from app.api.v1.admin.foundations import router as foundations_router
 from app.api.v1.admin.campaigns import router as campaigns_router
+from app.api.v1.admin.donations import router as donations_router
 from app.api.v1.admin.media import router as media_router
 from app.api.v1.admin.users import router as users_router
 from app.api.v1.admin.stats import router as stats_router
@@ -17,6 +18,7 @@ router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["admin-auth"])
 router.include_router(foundations_router, prefix="/foundations", tags=["admin-foundations"])
 router.include_router(campaigns_router, prefix="/campaigns", tags=["admin-campaigns"])
+router.include_router(donations_router, prefix="/donations", tags=["admin-donations"])
 router.include_router(media_router, prefix="/media", tags=["admin-media"])
 router.include_router(users_router, prefix="/users", tags=["admin-users"])
 router.include_router(stats_router, prefix="/stats", tags=["admin-stats"])

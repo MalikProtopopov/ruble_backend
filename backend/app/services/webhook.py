@@ -11,7 +11,7 @@ from app.models.base import DonationStatus, PatronLinkStatus, SubscriptionStatus
 from app.services.yookassa import yookassa_client
 from app.services.impact import check_and_award_achievements
 from app.services.notification import send_push
-from app.services.payment import process_successful_payment
+from app.services.payment import process_successful_payment, reverse_successful_payment
 from app.domain.constants import SOFT_DECLINE_RETRY_DAYS
 from app.services.thanks import find_unseen_thanks_for_campaign
 from datetime import datetime, timedelta, timezone
@@ -32,6 +32,9 @@ async def process_yookassa_webhook(session: AsyncSession, event: dict) -> dict:
     elif event_type == "payment.canceled":
         reason = payment_obj.get("cancellation_details", {}).get("reason")
         await handle_payment_canceled(session, payment_id, reason)
+        return {"status": "ok", "event": event_type}
+    elif event_type == "refund.succeeded":
+        await handle_refund_succeeded(session, payment_obj)
         return {"status": "ok", "event": event_type}
     else:
         logger.warning("yookassa_unknown_event", event_type=event_type)
@@ -200,3 +203,40 @@ async def handle_payment_canceled(session: AsyncSession, payment_id: str, reason
         donation.status = DonationStatus.failed
         await session.flush()
         logger.info("donation_failed", donation_id=str(donation.id), reason=reason)
+
+
+async def handle_refund_succeeded(session: AsyncSession, refund_obj: dict) -> None:
+    """Handle refund.succeeded webhook from YooKassa.
+
+    The refund object references the original payment via `payment_id`. We mark
+    the matching donation/transaction as refunded and reverse its counter
+    effects. Idempotent: only acts on entities still in `success` status, so a
+    duplicate webhook (or a refund already applied synchronously by the admin
+    endpoint) is a no-op.
+    """
+    payment_id = refund_obj.get("payment_id")
+    if not payment_id:
+        logger.warning("refund_missing_payment_id", refund_id=refund_obj.get("id"))
+        return
+
+    # Donations (one-time + patron links)
+    don_result = await session.execute(select(Donation).where(Donation.provider_payment_id == payment_id))
+    donation = don_result.scalar_one_or_none()
+    if donation and donation.status == DonationStatus.success:
+        donation.status = DonationStatus.refunded
+        await session.flush()
+        await reverse_successful_payment(session, donation.campaign_id, donation.user_id, donation.amount_kopecks)
+        logger.info("donation_refunded", donation_id=str(donation.id))
+        return
+
+    # Subscription transactions
+    txn_result = await session.execute(select(Transaction).where(Transaction.provider_payment_id == payment_id))
+    txn = txn_result.scalar_one_or_none()
+    if txn and txn.status == TransactionStatus.success:
+        txn.status = TransactionStatus.refunded
+        await session.flush()
+        if txn.campaign_id:
+            sub_result = await session.execute(select(Subscription).where(Subscription.id == txn.subscription_id))
+            sub = sub_result.scalar_one_or_none()
+            await reverse_successful_payment(session, txn.campaign_id, sub.user_id if sub else None, txn.amount_kopecks)
+        logger.info("transaction_refunded", transaction_id=str(txn.id))

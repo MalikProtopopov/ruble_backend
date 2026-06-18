@@ -23,6 +23,7 @@ os.environ.setdefault("JWT_PUBLIC_KEY_PATH", "keys/public.pem")
 os.environ.setdefault("NOTIFICATION_PROVIDER", "mock")
 os.environ.setdefault("EMAIL_PROVIDER", "mock")
 
+from app.core.config import settings  # noqa: E402
 from app.core.security import create_access_token, create_refresh_token  # noqa: E402
 from app.models.base import uuid7  # noqa: E402
 from app.models import (  # noqa: E402
@@ -127,8 +128,8 @@ async def client(db: AsyncSession):
 # ---------------------------------------------------------------------------
 
 
-def _make_access_token(subject_id: UUID, role: str) -> str:
-    return create_access_token(subject_id, role)
+def _make_access_token(subject_id: UUID, role: str, audience: str | None = None) -> str:
+    return create_access_token(subject_id, role, audience=audience)
 
 
 def _make_refresh_token(subject_id: UUID) -> str:
@@ -376,4 +377,4 @@ async def patron_headers(patron_user: User) -> dict:
 
 @pytest_asyncio.fixture
 async def admin_headers(admin: Admin) -> dict:
-    return auth_header(_make_access_token(admin.id, "admin"))
+    return auth_header(_make_access_token(admin.id, "admin", settings.JWT_ADMIN_AUDIENCE))

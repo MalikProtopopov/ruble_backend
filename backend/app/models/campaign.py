@@ -53,12 +53,16 @@ class CampaignDocument(Base, UUIDMixin):
     __tablename__ = "campaign_documents"
     __table_args__ = (
         Index("idx_campaign_documents_campaign", "campaign_id", "sort_order"),
+        Index("idx_campaign_documents_slug", "campaign_id", "slug", unique=True),
     )
 
     campaign_id: Mapped[UUID] = mapped_column(
         ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    # URL-friendly identifier, unique within a campaign. Auto-generated from the
+    # title on creation; used by the public document-detail endpoint.
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
     file_url: Mapped[str] = mapped_column(String, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(

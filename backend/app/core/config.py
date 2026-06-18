@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     JWT_PRIVATE_KEY_PATH: str = "keys/private.pem"
     JWT_PUBLIC_KEY_PATH: str = "keys/public.pem"
     JWT_AUDIENCE: str = "porubly-api"
+    JWT_ADMIN_AUDIENCE: str = "porubly-admin"  # isolated contour for admin access tokens
     JWT_ISSUER: str = "porubly"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30

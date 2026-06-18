@@ -310,6 +310,27 @@ async def get_campaign_documents(session: AsyncSession, campaign_id: UUID) -> li
     return list(docs_result.scalars().all())
 
 
+async def get_campaign_document_by_slug(
+    session: AsyncSession, campaign_id: UUID, slug: str,
+) -> CampaignDocument:
+    result = await session.execute(
+        select(Campaign).where(Campaign.id == campaign_id, Campaign.status == CampaignStatus.active)
+    )
+    if result.scalar_one_or_none() is None:
+        raise NotFoundError("Кампания не найдена")
+
+    doc_result = await session.execute(
+        select(CampaignDocument).where(
+            CampaignDocument.campaign_id == campaign_id,
+            CampaignDocument.slug == slug,
+        )
+    )
+    doc = doc_result.scalar_one_or_none()
+    if doc is None:
+        raise NotFoundError("Документ не найден")
+    return doc
+
+
 async def get_campaign_share(campaign_id: UUID, campaign: Campaign) -> dict:
     return {
         "share_url": f"https://porublyu.ru/campaigns/{campaign_id}",

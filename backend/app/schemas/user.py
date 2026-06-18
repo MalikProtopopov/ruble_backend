@@ -51,7 +51,7 @@ class UpdateNotificationsRequest(BaseModel):
 
 class AdminUserListItem(OrmBase):
     id: UUID
-    email: str
+    email: str | None = None
     phone: str | None = None
     name: str | None
     avatar_url: str | None = None
@@ -87,11 +87,11 @@ class AdminUserDonationBrief(OrmBase):
 
 class UserRoleResponse(BaseModel):
     id: UUID
-    email: str
+    email: str | None = None
     role: str
 
 
 class UserActiveResponse(BaseModel):
     id: UUID
-    email: str
+    email: str | None = None
     is_active: bool

@@ -16,6 +16,7 @@ from app.domain.constants import ALLOWED_SUBSCRIPTION_AMOUNTS
 from app.domain.subscription import InvalidSubscriptionAmount, validate_subscription_amount
 from app.domain.subscription import billing_amount
 from app.core.config import settings
+from app.services.allocation import find_campaign_for_subscription
 from app.services.payment import calculate_fees
 from app.services.subscription_limits import check_subscription_limit
 from app.services.yookassa import yookassa_client
@@ -161,12 +162,17 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
     idempotence_key = str(uuid7())
     description = f"Подписка «По Рублю» — {rub:.0f}₽/день ({period_label})"
 
+    # Resolve which campaign this first payment funds (handles pool strategies
+    # where sub.campaign_id is NULL). Best-effort: if nothing is active right
+    # now we still proceed to save the card, the charge just won't be allocated.
+    target_campaign_id = await find_campaign_for_subscription(session, sub)
+
     # Create Transaction record for the first payment
     fees = calculate_fees(amount)
     txn = Transaction(
         id=uuid7(),
         subscription_id=sub.id,
-        campaign_id=sub.campaign_id,
+        campaign_id=target_campaign_id,
         foundation_id=sub.foundation_id,
         amount_kopecks=amount,
         platform_fee_kopecks=fees["platform_fee_kopecks"],

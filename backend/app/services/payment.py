@@ -182,3 +182,76 @@ async def process_successful_payment(
     if user_id is not None:
         await update_user_streak(session, user_id)
         await update_user_impact(session, user_id, amount_kopecks)
+
+
+async def reverse_successful_payment(
+    session: AsyncSession,
+    campaign_id: UUID,
+    user_id: UUID | None,
+    amount_kopecks: int,
+) -> None:
+    """Undo the counter effects of a payment that was refunded.
+
+    Mirror of process_successful_payment for the denormalized counters:
+    1. Decrement campaign.collected_amount (floored at 0)
+    2. Decrement user impact totals (floored at 0)
+    3. If the user no longer has ANY successful contribution to this campaign,
+       drop the campaign_donors row and decrement donors_count.
+
+    The streak is intentionally NOT reversed — it is a time-based engagement
+    metric, and the original donation day still happened.
+    Call this AFTER the donation/transaction has been moved out of 'success'
+    status, so the "remaining contributions" check below is accurate.
+    """
+    await session.execute(
+        text("""
+            UPDATE campaigns
+            SET collected_amount = GREATEST(0, collected_amount - :amount),
+                updated_at = now()
+            WHERE id = :campaign_id
+        """),
+        {"amount": amount_kopecks, "campaign_id": campaign_id},
+    )
+
+    if user_id is not None:
+        await session.execute(
+            text("""
+                UPDATE users
+                SET total_donated_kopecks = GREATEST(0, total_donated_kopecks - :amount),
+                    total_donations_count = GREATEST(0, total_donations_count - 1),
+                    updated_at = now()
+                WHERE id = :user_id
+            """),
+            {"amount": amount_kopecks, "user_id": user_id},
+        )
+
+        remaining = await session.execute(
+            text("""
+                SELECT
+                    COALESCE((SELECT COUNT(*) FROM donations
+                              WHERE user_id = :user_id AND campaign_id = :campaign_id
+                                AND status = 'success' AND is_deleted = false), 0)
+                  + COALESCE((SELECT COUNT(*) FROM transactions t
+                              JOIN subscriptions s ON s.id = t.subscription_id
+                              WHERE s.user_id = :user_id AND t.campaign_id = :campaign_id
+                                AND t.status = 'success'), 0) AS cnt
+            """),
+            {"user_id": user_id, "campaign_id": campaign_id},
+        )
+        if (remaining.scalar() or 0) == 0:
+            deleted = await session.execute(
+                text("DELETE FROM campaign_donors WHERE campaign_id = :campaign_id AND user_id = :user_id"),
+                {"campaign_id": campaign_id, "user_id": user_id},
+            )
+            if deleted.rowcount and deleted.rowcount > 0:
+                await session.execute(
+                    text("UPDATE campaigns SET donors_count = GREATEST(0, donors_count - 1) WHERE id = :campaign_id"),
+                    {"campaign_id": campaign_id},
+                )
+
+    logger.info(
+        "payment_reversed",
+        campaign_id=str(campaign_id),
+        user_id=str(user_id) if user_id else None,
+        amount=amount_kopecks,
+    )

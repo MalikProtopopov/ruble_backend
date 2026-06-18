@@ -32,7 +32,14 @@ def _hash_otp(code: str) -> str:
 
 
 def _verify_otp(code_hash: str, code: str) -> bool:
-    """Verify OTP code against argon2 hash."""
+    """Verify OTP code against argon2 hash.
+
+    DEV-only convenience: when DEBUG is on, the master code "111111" matches any
+    active OTP — so local/staging flows can be tested without a real email
+    provider. Gated on settings.DEBUG, so it never applies in production.
+    """
+    if settings.DEBUG and code == "111111":
+        return True
     try:
         return _ph.verify(code_hash, code)
     except VerifyMismatchError:
@@ -450,7 +457,7 @@ async def refresh_tokens(session: AsyncSession, refresh_token_str: str) -> dict:
         admin = admin_result.scalar_one_or_none()
         if admin is None or not admin.is_active:
             raise AppError(code="INVALID_REFRESH_TOKEN", message="Администратор не найден или деактивирован", status_code=401)
-        access_token = create_access_token(admin.id, "admin")
+        access_token = create_access_token(admin.id, "admin", audience=settings.JWT_ADMIN_AUDIENCE)
         new_refresh = create_refresh_token(admin.id)
         new_rt = RefreshToken(id=uuid7(), admin_id=admin.id, token_hash=_hash_refresh_token(new_refresh), expires_at=datetime.now(timezone.utc) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS))
     else:
@@ -483,7 +490,7 @@ async def admin_login(session: AsyncSession, email: str, password: str) -> dict:
     except VerifyMismatchError:
         raise AppError(code="ADMIN_AUTH_FAILED", message="Неверный email или пароль", status_code=401)
 
-    access_token = create_access_token(admin.id, "admin")
+    access_token = create_access_token(admin.id, "admin", audience=settings.JWT_ADMIN_AUDIENCE)
     refresh_token = create_refresh_token(admin.id)
 
     rt = RefreshToken(

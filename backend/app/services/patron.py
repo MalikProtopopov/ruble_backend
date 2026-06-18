@@ -7,11 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.base import uuid7
 
+from app.core.config import settings
 from app.core.exceptions import BusinessLogicError, NotFoundError
 from app.core.pagination import decode_cursor, encode_cursor
 from app.models import Campaign, Donation, PatronPaymentLink
 from app.models.base import CampaignStatus, DonationSource, DonationStatus, PatronLinkStatus
 from app.services.payment import calculate_fees
+from app.services.yookassa import yookassa_client
 
 PATRON_LINK_TTL_HOURS = 24
 
@@ -40,8 +42,22 @@ async def create_payment_link(session: AsyncSession, user_id: UUID, campaign_id:
     session.add(donation)
     await session.flush()
 
-    # TODO: create YooKassa payment
-    payment_url = f"https://yookassa.ru/pay/{idempotence_key}"
+    # Create a real YooKassa payment so the link is actually payable. The
+    # webhook (type="patron_link") confirms it and flips the donation/link to
+    # paid; without a real provider_payment_id the donation would hang pending
+    # forever (reconciliation only picks up donations that have one).
+    payment = await yookassa_client.create_payment(
+        amount_kopecks=amount_kopecks,
+        description=f"Пожертвование: {campaign.title}"[:128],
+        idempotence_key=idempotence_key,
+        return_url=f"{settings.PUBLIC_API_URL}/payment-result?donation_id={donation.id}",
+        metadata={"type": "patron_link", "entity_id": str(donation.id)},
+    )
+    donation.provider_payment_id = payment["id"]
+    donation.payment_url = payment["payment_url"]
+    await session.flush()
+
+    payment_url = payment["payment_url"] or ""
 
     link = PatronPaymentLink(
         id=uuid7(),

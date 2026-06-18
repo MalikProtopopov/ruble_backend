@@ -4,7 +4,7 @@ Runs every 30 minutes. Finds active subscriptions where next_billing_at <= now()
 and creates new transactions + YooKassa payments.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +14,9 @@ from app.core.logging import get_logger
 from app.domain.constants import SOFT_DECLINE_RETRY_DAYS
 from app.domain.subscription import billing_amount
 from app.models import Subscription, Transaction
-from app.models.base import SubscriptionStatus, TransactionStatus, uuid7
-from app.services.payment import calculate_fees
+from app.models.base import SkipReason, SubscriptionStatus, TransactionStatus, uuid7
+from app.services.allocation import find_campaign_for_subscription
+from app.services.payment import calculate_fees, mark_streak_no_campaigns
 from app.services.yookassa import yookassa_client
 from app.tasks import broker
 
@@ -88,16 +89,55 @@ async def retry_failed_transactions() -> dict:
 
 
 async def _charge_subscription(session: AsyncSession, sub: Subscription) -> None:
-    """Create a new transaction and charge via YooKassa."""
+    """Create a new transaction and charge via YooKassa.
+
+    Resolves the campaign to fund at charge time via the allocation strategy
+    (specific_campaign with fallback / foundation_pool / platform_pool). If no
+    active campaign is available, records a `skipped` transaction WITHOUT
+    charging the card and preserves the streak — the subscription will be tried
+    again next period.
+    """
     bp = sub.billing_period.value if hasattr(sub.billing_period, "value") else sub.billing_period
     amount = billing_amount(sub.amount_kopecks, bp)
+    period_days = 7 if bp == "weekly" else 30
+
+    target_campaign_id = await find_campaign_for_subscription(session, sub)
+
+    if target_campaign_id is None:
+        # No active campaign to fund right now — record a skipped transaction
+        # (no money is taken) and move the next attempt to the next period.
+        skipped = Transaction(
+            id=uuid7(),
+            subscription_id=sub.id,
+            campaign_id=None,
+            foundation_id=sub.foundation_id,
+            amount_kopecks=amount,
+            platform_fee_kopecks=0,
+            nco_amount_kopecks=0,
+            idempotence_key=str(uuid7()),
+            status=TransactionStatus.skipped,
+            skipped_reason=SkipReason.no_active_campaigns,
+        )
+        session.add(skipped)
+        if sub.user_id:
+            await mark_streak_no_campaigns(session, sub.user_id)
+        sub.next_billing_at = datetime.now(timezone.utc) + timedelta(days=period_days)
+        await session.flush()
+        logger.info(
+            "subscription_billing_skipped",
+            subscription_id=str(sub.id),
+            transaction_id=str(skipped.id),
+            reason="no_active_campaigns",
+        )
+        return
+
     fees = calculate_fees(amount)
     idempotence_key = str(uuid7())
 
     txn = Transaction(
         id=uuid7(),
         subscription_id=sub.id,
-        campaign_id=sub.campaign_id,
+        campaign_id=target_campaign_id,
         foundation_id=sub.foundation_id,
         amount_kopecks=amount,
         platform_fee_kopecks=fees["platform_fee_kopecks"],

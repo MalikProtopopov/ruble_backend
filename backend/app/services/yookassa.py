@@ -171,6 +171,50 @@ class YooKassaClient:
             metadata=metadata,
         )
 
+    async def create_refund(
+        self,
+        payment_id: str,
+        amount_kopecks: int,
+        idempotence_key: str,
+        description: str | None = None,
+    ) -> dict:
+        """Refund a previously succeeded payment via YooKassa API.
+
+        Returns dict: {id, status} where status is typically 'succeeded'.
+        """
+        body: dict = {
+            "amount": {"value": _kopecks_to_rub(amount_kopecks), "currency": "RUB"},
+            "payment_id": payment_id,
+        }
+        if description:
+            body["description"] = description[:250]
+
+        # Test / unconfigured environments: skip the real API call.
+        if not self.shop_id or not self.secret_key:
+            fake_id = f"test-refund-{idempotence_key}"
+            logger.info("yookassa_create_refund_mocked", refund_id=fake_id, payment_id=payment_id)
+            return {"id": fake_id, "status": "succeeded"}
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                f"{YOOKASSA_API_URL}/refunds",
+                json=body,
+                auth=self._auth(),
+                headers={"Idempotence-Key": idempotence_key, "Content-Type": "application/json"},
+                timeout=30.0,
+            )
+
+        if resp.status_code not in (200, 201):
+            logger.error(
+                "yookassa_create_refund_error",
+                status=resp.status_code, body=resp.text, payment_id=payment_id,
+            )
+            raise RuntimeError(f"YooKassa refund error: {resp.status_code} {resp.text}")
+
+        data = resp.json()
+        logger.info("yookassa_refund_created", refund_id=data.get("id"), status=data.get("status"), payment_id=payment_id)
+        return {"id": data["id"], "status": data["status"]}
+
     async def get_payment(self, payment_id: str) -> dict:
         """Get payment details from YooKassa to extract payment_method info."""
         async with httpx.AsyncClient() as client:

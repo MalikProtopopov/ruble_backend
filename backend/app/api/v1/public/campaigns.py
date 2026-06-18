@@ -261,6 +261,20 @@ async def get_campaign_documents(
     return await campaign_service.get_campaign_documents(session, campaign_id)
 
 
+@router.get(
+    "/{campaign_id}/documents/{slug}",
+    response_model=CampaignDocumentResponse,
+    summary="Get campaign document by slug",
+    description="Детальная страница одного документа кампании по его slug.",
+)
+async def get_campaign_document(
+    campaign_id: UUID,
+    slug: str,
+    session: AsyncSession = Depends(get_db_session),
+):
+    return await campaign_service.get_campaign_document_by_slug(session, campaign_id, slug)
+
+
 @router.get("/{campaign_id}/share", response_model=ShareResponse, summary="Get campaign share data", description="Данные для шаринга кампании в соцсетях")
 async def get_campaign_share(
     campaign_id: UUID,

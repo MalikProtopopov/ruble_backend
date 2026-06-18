@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.pagination import PaginationParams
+from app.core.slug import slugify
 from app.models import Campaign, CampaignDocument, Foundation, OfflinePayment, Subscription, ThanksContent
 from app.models.base import CampaignStatus, FoundationStatus, SubscriptionStatus, uuid7
 from app.repositories.base import cursor_paginate
@@ -68,8 +69,33 @@ async def atomic_increment_collected(session: AsyncSession, campaign_id: UUID, a
 # --- Documents ---
 
 
+async def _unique_document_slug(session: AsyncSession, campaign_id: UUID, title: str) -> str:
+    """Build a slug from ``title`` that is unique within the campaign.
+
+    Appends ``-2``, ``-3``, … on collision so two documents with the same title
+    in one campaign never violate the unique (campaign_id, slug) index.
+    """
+    base = slugify(title)
+    candidate = base
+    suffix = 2
+    while True:
+        exists = await session.execute(
+            select(CampaignDocument.id).where(
+                CampaignDocument.campaign_id == campaign_id,
+                CampaignDocument.slug == candidate,
+            )
+        )
+        if exists.scalar_one_or_none() is None:
+            return candidate
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+
+
 async def add_document(session: AsyncSession, campaign_id: UUID, title: str, file_url: str, sort_order: int = 0) -> CampaignDocument:
-    doc = CampaignDocument(id=uuid7(), campaign_id=campaign_id, title=title, file_url=file_url, sort_order=sort_order)
+    slug = await _unique_document_slug(session, campaign_id, title)
+    doc = CampaignDocument(
+        id=uuid7(), campaign_id=campaign_id, title=title, slug=slug, file_url=file_url, sort_order=sort_order,
+    )
     session.add(doc)
     await session.flush()
     return doc
@@ -78,6 +104,15 @@ async def add_document(session: AsyncSession, campaign_id: UUID, title: str, fil
 async def get_document(session: AsyncSession, campaign_id: UUID, doc_id: UUID) -> CampaignDocument | None:
     result = await session.execute(
         select(CampaignDocument).where(CampaignDocument.id == doc_id, CampaignDocument.campaign_id == campaign_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_document_by_slug(session: AsyncSession, campaign_id: UUID, slug: str) -> CampaignDocument | None:
+    result = await session.execute(
+        select(CampaignDocument).where(
+            CampaignDocument.campaign_id == campaign_id, CampaignDocument.slug == slug,
+        )
     )
     return result.scalar_one_or_none()
 
