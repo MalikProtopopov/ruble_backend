@@ -134,6 +134,22 @@ class YooKassaClient:
                 body=resp.text,
                 idempotence_key=idempotence_key,
             )
+            # 4xx = the request/payment was rejected (invalid or expired SDK
+            # token, declined card, bad params). That's a client-handleable
+            # condition — surface it as a clean 422 so the app can react
+            # (e.g. re-tokenize), not a 500. 5xx / network → RuntimeError (500).
+            if 400 <= resp.status_code < 500:
+                from app.core.exceptions import BusinessLogicError
+
+                try:
+                    err = resp.json()
+                except Exception:
+                    err = {}
+                raise BusinessLogicError(
+                    code="PAYMENT_PROVIDER_ERROR",
+                    message=err.get("description") or "Платёж отклонён платёжным провайдером",
+                    details={"provider_code": err.get("code"), "parameter": err.get("parameter")},
+                )
             raise RuntimeError(f"YooKassa API error: {resp.status_code} {resp.text}")
 
         data = resp.json()
