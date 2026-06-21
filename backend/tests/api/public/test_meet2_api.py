@@ -374,7 +374,8 @@ async def test_payment_methods_delete_promotes_another(client, db, user, donor_h
         f"/api/v1/payment-methods/{pm1.id}",
         headers=donor_headers,
     )
-    assert resp.status_code == 204
+    assert resp.status_code == 200
+    assert resp.json() == {"success": True}
     await db.refresh(pm2)
     assert pm2.is_default is True
 

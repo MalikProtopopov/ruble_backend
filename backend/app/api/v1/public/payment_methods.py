@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
@@ -53,8 +53,13 @@ async def create_payment_method(
 
 @router.delete(
     "/{pm_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a saved payment method",
+    description=(
+        "Удаляет (soft-delete) сохранённую карту. Возвращает 200 с телом "
+        "`{\"success\": true}` — НЕ 204 — потому что мобильные клиенты, которые "
+        "всегда парсят JSON-ответ, падали на пустом теле 204 и показывали "
+        "«Не удалось удалить карту», хотя карта уже была удалена."
+    ),
 )
 async def delete_payment_method(
     pm_id: UUID,
@@ -62,7 +67,7 @@ async def delete_payment_method(
     user: dict = Depends(require_donor),
 ):
     await pm_service.delete_for_user(session, pm_id, UUID(user["sub"]))
-    return Response(status_code=204)
+    return {"success": True}
 
 
 @router.post(
