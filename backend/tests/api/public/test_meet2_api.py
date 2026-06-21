@@ -379,6 +379,18 @@ async def test_payment_methods_delete_promotes_another(client, db, user, donor_h
     assert pm2.is_default is True
 
 
+async def test_payment_methods_create_returns_payment_url(client, db, user, donor_headers):
+    """POST /payment-methods starts card binding via a nominal YooKassa payment."""
+    from app.domain.constants import CARD_SAVE_AMOUNT_KOPECKS
+
+    resp = await client.post("/api/v1/payment-methods", headers=donor_headers)
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["payment_url"]
+    assert body["confirmation_type"] == "redirect"
+    assert body["amount_kopecks"] == CARD_SAVE_AMOUNT_KOPECKS
+
+
 async def test_donation_with_saved_payment_method(client, db, user, donor_headers, campaign):
     pm = await _create_pm(db, user, last4="4242")
     resp = await client.post(

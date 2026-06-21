@@ -11,6 +11,12 @@ MAX_ACTIVE_SUBSCRIPTIONS = 5
 # Donations
 MIN_DONATION_AMOUNT_KOPECKS = 1000  # 10 rub
 
+# Card binding — YooKassa has no card-only tokenization, so a standalone
+# "save card" must run a real payment. We charge the minimal 1₽ with
+# save_payment_method=true and refund it from the webhook once the card is
+# persisted, so binding a card is effectively free for the user.
+CARD_SAVE_AMOUNT_KOPECKS = 100  # 1 rub
+
 # Auth / OTP
 OTP_TTL_MINUTES = 10
 OTP_MAX_ATTEMPTS = 5

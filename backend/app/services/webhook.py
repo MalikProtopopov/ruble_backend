@@ -12,7 +12,7 @@ from app.services.yookassa import yookassa_client
 from app.services.impact import check_and_award_achievements
 from app.services.notification import send_push
 from app.services.payment import process_successful_payment, reverse_successful_payment
-from app.domain.constants import SOFT_DECLINE_RETRY_DAYS
+from app.domain.constants import CARD_SAVE_AMOUNT_KOPECKS, SOFT_DECLINE_RETRY_DAYS
 from app.services.thanks import find_unseen_thanks_for_campaign
 from datetime import datetime, timedelta, timezone
 
@@ -155,6 +155,43 @@ async def handle_payment_succeeded(
                         data={"type": "payment_success", "transaction_id": str(txn.id)},
                     )
             logger.info("transaction_succeeded", transaction_id=str(txn.id))
+
+    elif payment_type == "card_save":
+        # Standalone card binding (POST /payment-methods). YooKassa needs a real
+        # charge to tokenize a card, so we charged a nominal 1₽ — persist the
+        # saved method, then refund the charge so binding is free for the user.
+        user_id_raw = entity_id
+        pm_payload = (payment_obj or {}).get("payment_method", {}) or {}
+        if user_id_raw and pm_payload.get("saved") and pm_payload.get("id"):
+            from app.services.payment_method import save_from_yookassa
+
+            card = pm_payload.get("card", {}) or {}
+            await save_from_yookassa(
+                session,
+                user_id=UUID(user_id_raw),
+                provider_pm_id=pm_payload["id"],
+                card_last4=card.get("last4"),
+                card_type=card.get("card_type"),
+                title=pm_payload.get("title"),
+                card_first6=card.get("first6"),
+                card_exp_month=card.get("expiry_month"),
+                card_exp_year=card.get("expiry_year"),
+            )
+
+            # Refund the nominal binding charge. Best-effort: a failed refund must
+            # not lose the just-saved card, so we swallow errors and log them.
+            try:
+                await yookassa_client.create_refund(
+                    payment_id=payment_id,
+                    amount_kopecks=CARD_SAVE_AMOUNT_KOPECKS,
+                    idempotence_key=f"card-save-refund-{payment_id}",
+                    description="Возврат за привязку карты",
+                )
+            except Exception:
+                logger.warning("card_save_refund_failed", payment_id=payment_id, user_id=user_id_raw)
+            logger.info("card_save_succeeded", user_id=user_id_raw, payment_id=payment_id)
+        else:
+            logger.warning("card_save_no_saved_method", payment_id=payment_id)
 
     elif payment_type == "patron_link":
         # Find donation by provider_payment_id

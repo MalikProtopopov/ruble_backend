@@ -6,10 +6,13 @@ from uuid import UUID
 from sqlalchemy import func as sa_func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.exceptions import BusinessLogicError, NotFoundError
 from app.core.logging import get_logger
+from app.domain.constants import CARD_SAVE_AMOUNT_KOPECKS
 from app.models import Donation, PaymentMethod, Subscription, User
 from app.models.base import SubscriptionStatus, uuid7
+from app.services.yookassa import yookassa_client
 
 logger = get_logger(__name__)
 
@@ -128,6 +131,51 @@ async def save_from_yookassa(
         has_fingerprint=fingerprint is not None,
     )
     return pm
+
+
+async def initiate_card_save(session: AsyncSession, user_id: UUID) -> dict:
+    """Start a standalone card-binding flow.
+
+    YooKassa has no card-only tokenization — a card can only be saved as a
+    side-effect of a real payment. So we create a minimal 1₽ payment with
+    save_payment_method=true. On payment.succeeded the webhook persists the
+    method (save_from_yookassa) and refunds the charge, so binding is free.
+
+    Returns {payment_url, confirmation_type, amount_kopecks}. The caller (mobile
+    app) opens payment_url; the saved card then shows up in GET /payment-methods.
+    """
+    amount = CARD_SAVE_AMOUNT_KOPECKS
+    idempotence_key = str(uuid7())
+    description = "Привязка карты «По Рублю»"
+
+    # YooKassa rejects custom URI schemes, so we redirect to an HTTPS handler
+    # that opens the porublyu:// deep link via JS (see app/api/v1/payment_result.py).
+    return_url = f"{settings.PUBLIC_API_URL.rstrip('/')}/payment-result?card_save=1"
+
+    payment = await yookassa_client.create_payment(
+        amount_kopecks=amount,
+        description=description,
+        idempotence_key=idempotence_key,
+        return_url=return_url,
+        save_payment_method=True,
+        metadata={
+            "type": "card_save",
+            "entity_id": str(user_id),
+        },
+    )
+
+    if not payment.get("payment_url"):
+        raise BusinessLogicError(
+            code="CARD_SAVE_NO_CONFIRMATION",
+            message="Не удалось получить ссылку оплаты для привязки карты",
+        )
+
+    logger.info("card_save_initiated", user_id=str(user_id), payment_id=payment["id"])
+    return {
+        "payment_url": payment["payment_url"],
+        "confirmation_type": "redirect",
+        "amount_kopecks": amount,
+    }
 
 
 async def delete_for_user(session: AsyncSession, pm_id: UUID, user_id: UUID) -> None:

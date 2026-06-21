@@ -16,6 +16,19 @@ class PaymentMethodResponse(OrmBase):
     created_at: datetime
 
 
+class CardSaveResponse(BaseModel):
+    """Response for POST /payment-methods — kicks off card binding via YooKassa.
+
+    The client opens `payment_url`, the user confirms a nominal 1₽ charge, the
+    card is persisted on `payment.succeeded` and the charge is refunded. The
+    saved method then appears in GET /payment-methods.
+    """
+
+    payment_url: str
+    confirmation_type: str = "redirect"
+    amount_kopecks: int
+
+
 class OrphanedAccountPreview(BaseModel):
     """Preview of an orphaned anonymous account that holds the same physical card.
 

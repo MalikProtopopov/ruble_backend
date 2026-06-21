@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.security import require_donor
 from app.schemas.payment_method import (
+    CardSaveResponse,
     OrphanedAccountPreview,
     PaymentMethodResponse,
     RecoveryResult,
@@ -28,6 +29,26 @@ async def list_payment_methods(
     user: dict = Depends(require_donor),
 ):
     return await pm_service.list_for_user(session, UUID(user["sub"]))
+
+
+@router.post(
+    "",
+    response_model=CardSaveResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Save a new card",
+    description=(
+        "Запускает привязку новой карты. ЮKassa не умеет токенизировать карту без "
+        "платежа, поэтому создаётся минимальный платёж на 1₽ с "
+        "`save_payment_method=true`. Возвращает `payment_url` — клиент открывает "
+        "его, после подтверждения карта сохраняется (вебхук `payment.succeeded`), "
+        "а списание возвращается. Сохранённая карта появится в GET /payment-methods."
+    ),
+)
+async def create_payment_method(
+    session: AsyncSession = Depends(get_db_session),
+    user: dict = Depends(require_donor),
+):
+    return await pm_service.initiate_card_save(session, UUID(user["sub"]))
 
 
 @router.delete(

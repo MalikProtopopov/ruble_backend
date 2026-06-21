@@ -196,6 +196,66 @@ async def test_patron_link_payment_succeeded(
 
 
 # ---------------------------------------------------------------------------
+# payment succeeded — card_save (standalone POST /payment-methods)
+# ---------------------------------------------------------------------------
+
+
+async def test_card_save_payment_succeeded(db: AsyncSession, user: User):
+    """card_save webhook persists the saved card and refunds the nominal charge."""
+    from app.models import PaymentMethod
+
+    payment_id = f"pay_{uuid7().hex[:12]}"
+    payment_obj = {
+        "id": payment_id,
+        "payment_method": {
+            "id": "pm_saved_xyz",
+            "saved": True,
+            "title": "Bank card *4242",
+            "card": {
+                "last4": "4242",
+                "card_type": "Visa",
+                "first6": "424242",
+                "expiry_month": "12",
+                "expiry_year": "2030",
+            },
+        },
+    }
+
+    await handle_payment_succeeded(
+        db,
+        payment_id,
+        {"type": "card_save", "entity_id": str(user.id)},
+        payment_obj,
+    )
+
+    result = await db.execute(
+        select(PaymentMethod).where(PaymentMethod.user_id == user.id)
+    )
+    pm = result.scalar_one()
+    assert pm.provider_pm_id == "pm_saved_xyz"
+    assert pm.card_last4 == "4242"
+    assert pm.is_default is True  # first card becomes default
+
+
+async def test_card_save_no_saved_method_is_noop(db: AsyncSession, user: User):
+    """If YooKassa didn't save the card, no payment method is created."""
+    from app.models import PaymentMethod
+
+    payment_id = f"pay_{uuid7().hex[:12]}"
+    await handle_payment_succeeded(
+        db,
+        payment_id,
+        {"type": "card_save", "entity_id": str(user.id)},
+        {"id": payment_id, "payment_method": {"saved": False}},
+    )
+
+    result = await db.execute(
+        select(PaymentMethod).where(PaymentMethod.user_id == user.id)
+    )
+    assert result.scalar_one_or_none() is None
+
+
+# ---------------------------------------------------------------------------
 # payment canceled
 # ---------------------------------------------------------------------------
 
