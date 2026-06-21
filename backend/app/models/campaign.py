@@ -63,7 +63,13 @@ class CampaignDocument(Base, UUIDMixin):
     # URL-friendly identifier, unique within a campaign. Auto-generated from the
     # title on creation; used by the public document-detail endpoint.
     slug: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_url: Mapped[str] = mapped_column(String, nullable=False)
+    # Short plain-text preview shown in the documents list.
+    excerpt: Mapped[str | None] = mapped_column(String(500))
+    # Full document body as Markdown — rendered in-app for reading. Optional:
+    # a document may be PDF-only (content NULL) or text-only (file_url NULL).
+    content: Mapped[str | None] = mapped_column(Text)
+    # Direct link to a downloadable PDF. Nullable so text-only docs are allowed.
+    file_url: Mapped[str | None] = mapped_column(String)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,

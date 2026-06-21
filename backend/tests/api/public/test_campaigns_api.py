@@ -116,7 +116,9 @@ async def test_get_documents(client, db, campaign):
 async def test_get_document_by_slug(client, db, campaign):
     doc = CampaignDocument(
         id=uuid7(), campaign_id=campaign.id,
-        title="Report", slug="report", file_url="https://cdn.example.com/report.pdf", sort_order=0,
+        title="Report", slug="report",
+        excerpt="Краткое описание", content="# Отчёт\n\nТекст со **стилями**.",
+        file_url="https://cdn.example.com/report.pdf", sort_order=0,
     )
     db.add(doc)
     await db.flush()
@@ -127,6 +129,26 @@ async def test_get_document_by_slug(client, db, campaign):
     assert body["slug"] == "report"
     assert body["title"] == "Report"
     assert body["file_url"] == "https://cdn.example.com/report.pdf"
+    # Detail view exposes the Markdown body + excerpt for in-app reading.
+    assert body["excerpt"] == "Краткое описание"
+    assert body["content"] == "# Отчёт\n\nТекст со **стилями**."
+
+
+async def test_document_list_omits_full_content(client, db, campaign):
+    """List view is lightweight — excerpt yes, full content no."""
+    db.add(CampaignDocument(
+        id=uuid7(), campaign_id=campaign.id,
+        title="Report", slug="report", excerpt="preview", content="huge body",
+        file_url=None, sort_order=0,
+    ))
+    await db.flush()
+
+    resp = await client.get(f"/api/v1/campaigns/{str(campaign.id)}/documents")
+    assert resp.status_code == 200
+    item = resp.json()[0]
+    assert item["excerpt"] == "preview"
+    assert item["file_url"] is None  # text-only doc allowed
+    assert "content" not in item
 
 
 async def test_get_document_by_slug_not_found(client, campaign):

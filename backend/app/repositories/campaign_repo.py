@@ -91,10 +91,20 @@ async def _unique_document_slug(session: AsyncSession, campaign_id: UUID, title:
         suffix += 1
 
 
-async def add_document(session: AsyncSession, campaign_id: UUID, title: str, file_url: str, sort_order: int = 0) -> CampaignDocument:
+async def add_document(
+    session: AsyncSession,
+    campaign_id: UUID,
+    title: str,
+    file_url: str | None = None,
+    sort_order: int = 0,
+    *,
+    excerpt: str | None = None,
+    content: str | None = None,
+) -> CampaignDocument:
     slug = await _unique_document_slug(session, campaign_id, title)
     doc = CampaignDocument(
-        id=uuid7(), campaign_id=campaign_id, title=title, slug=slug, file_url=file_url, sort_order=sort_order,
+        id=uuid7(), campaign_id=campaign_id, title=title, slug=slug,
+        excerpt=excerpt, content=content, file_url=file_url, sort_order=sort_order,
     )
     session.add(doc)
     await session.flush()

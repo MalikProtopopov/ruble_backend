@@ -21,6 +21,7 @@ from app.schemas.campaign import (
     AdminCampaignResponse,
     AdminCampaignUpdate,
     CampaignDocumentCreate,
+    CampaignDocumentDetail,
     CampaignDocumentResponse,
     CloseEarlyRequest,
     ForceReallocResponse,
@@ -484,7 +485,7 @@ async def list_offline_payments(
 @router.post(
     "/{campaign_id}/documents",
     status_code=201,
-    response_model=CampaignDocumentResponse,
+    response_model=CampaignDocumentDetail,
     summary="Add document to campaign",
     description="Добавление документа к кампании",
 )
@@ -500,9 +501,10 @@ async def create_document(
 
     doc = await campaign_repo.add_document(
         session, campaign_id, title=body.title, file_url=body.file_url, sort_order=body.sort_order,
+        excerpt=body.excerpt, content=body.content,
     )
     logger.info("document_created", campaign_id=str(campaign_id), doc_id=str(doc.id), admin_id=admin["sub"])
-    return CampaignDocumentResponse.model_validate(doc).model_dump(mode="json")
+    return CampaignDocumentDetail.model_validate(doc).model_dump(mode="json")
 
 
 @router.delete(

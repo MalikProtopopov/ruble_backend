@@ -15,11 +15,18 @@ class FoundationBriefWithUrl(FoundationBrief):
 
 
 class CampaignDocumentResponse(OrmBase):
+    """List/embedded view — lightweight, no full body (use the detail endpoint)."""
     id: UUID
     title: str
     slug: str
-    file_url: str
+    excerpt: str | None = None
+    file_url: str | None = None  # downloadable PDF (may be null for text-only docs)
     sort_order: int
+
+
+class CampaignDocumentDetail(CampaignDocumentResponse):
+    """Detail view (GET /campaigns/{id}/documents/{slug}) — includes the body."""
+    content: str | None = None  # full document body as Markdown
 
 
 class ThanksContentBrief(OrmBase):
@@ -154,7 +161,9 @@ class ForceReallocResponse(BaseModel):
 
 class CampaignDocumentCreate(BaseModel):
     title: str
-    file_url: str
+    excerpt: str | None = None
+    content: str | None = None  # Markdown body shown in-app
+    file_url: str | None = None  # downloadable PDF link
     sort_order: int = 0
 
 

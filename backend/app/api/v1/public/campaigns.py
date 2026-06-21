@@ -14,6 +14,7 @@ from app.core.security import bearer_scheme, decode_token, require_donor
 from app.models import User
 from app.schemas.campaign import (
     CampaignDetailResponse,
+    CampaignDocumentDetail,
     CampaignDocumentResponse,
     CampaignListItem,
     LastDonationBrief,
@@ -263,9 +264,13 @@ async def get_campaign_documents(
 
 @router.get(
     "/{campaign_id}/documents/{slug}",
-    response_model=CampaignDocumentResponse,
+    response_model=CampaignDocumentDetail,
     summary="Get campaign document by slug",
-    description="Детальная страница одного документа кампании по его slug.",
+    description=(
+        "Детальная страница одного документа кампании по его slug. Возвращает "
+        "Markdown-текст в `content` (для чтения в приложении) и ссылку на PDF в "
+        "`file_url` (для скачивания)."
+    ),
 )
 async def get_campaign_document(
     campaign_id: UUID,
