@@ -148,8 +148,15 @@ async def cancel_subscription(session: AsyncSession, sub_id: UUID, user_id: UUID
     await session.flush()
 
 
-async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
-    """Initiate first payment for card binding."""
+async def bind_card(
+    session: AsyncSession, sub_id: UUID, user_id: UUID, payment_token: str | None = None,
+) -> dict:
+    """Initiate first payment for card binding.
+
+    Redirect flow (default) returns a ``payment_url``; mobile SDK flow
+    (``payment_token`` from the YooKassa SDK) returns ``payment_url=None`` (or a
+    3DS URL the SDK handles).
+    """
     sub = await get_subscription(session, sub_id, user_id)
     if sub.status != SubscriptionStatus.pending_payment_method:
         raise BusinessLogicError(code="SUBSCRIPTION_ALREADY_ACTIVE", message="Карта уже привязана к подписке")
@@ -196,6 +203,7 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
         idempotence_key=idempotence_key,
         return_url=return_url,
         save_payment_method=True,
+        payment_token=payment_token,
         metadata={
             "type": "transaction",
             "entity_id": str(txn.id),
@@ -206,7 +214,7 @@ async def bind_card(session: AsyncSession, sub_id: UUID, user_id: UUID) -> dict:
     await session.flush()
 
     return {
-        "payment_url": payment["payment_url"],
+        "payment_url": payment.get("payment_url"),
         "confirmation_type": "redirect",
         "subscription_id": sub.id,
         "amount_kopecks": amount,

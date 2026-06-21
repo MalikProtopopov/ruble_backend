@@ -30,6 +30,17 @@ async def test_create_donation_success(db: AsyncSession, user: User, campaign: C
     assert donation.payment_url is not None
 
 
+async def test_create_donation_with_sdk_payment_token(db: AsyncSession, user: User, campaign: Campaign):
+    """Mobile SDK flow: a payment_token creates the payment without a redirect URL."""
+    donation = await create_donation(
+        db, campaign.id, 10000, user_id=user.id, payment_token="tok_sdk_demo",
+    )
+    assert donation.status == DonationStatus.pending
+    assert donation.provider_payment_id is not None
+    # SDK flow returns no redirect confirmation URL (3DS handled by the SDK).
+    assert donation.payment_url is None
+
+
 async def test_create_donation_min_amount(db: AsyncSession, user: User, campaign: Campaign):
     """Amount below minimum raises MIN_DONATION_AMOUNT."""
     with pytest.raises(BusinessLogicError) as exc_info:

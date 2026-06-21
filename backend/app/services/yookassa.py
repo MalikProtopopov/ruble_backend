@@ -47,12 +47,20 @@ class YooKassaClient:
         return_url: str,
         save_payment_method: bool = False,
         payment_method_id: str | None = None,
+        payment_token: str | None = None,
         metadata: dict | None = None,
     ) -> dict:
         """Create a payment via YooKassa API.
 
-        For one-time payments: returns confirmation_url for redirect.
-        For recurring with saved method: no confirmation needed.
+        Two acceptance modes, chosen by the caller:
+        - **redirect** (default): no ``payment_token`` — YooKassa returns a
+          ``confirmation_url`` the user opens to pay (the hosted checkout page).
+        - **mobile SDK**: ``payment_token`` is the one-time token produced by the
+          YooKassa iOS/Android SDK after the user enters card data in the native
+          UI. We must NOT send a ``confirmation`` block in this mode — 3DS, if
+          required, comes back as ``confirmation.confirmation_url`` in the
+          response, which the SDK handles. ``payment_token`` and
+          ``payment_method_id`` are mutually exclusive.
 
         Returns dict: {id, payment_url, status, payment_method_id?}
         """
@@ -66,17 +74,22 @@ class YooKassaClient:
             "metadata": metadata or {},
         }
 
-        if payment_method_id:
+        if payment_token:
+            # Mobile SDK flow — the token carries the payment method.
+            body["payment_token"] = payment_token
+        elif payment_method_id:
             body["payment_method_id"] = payment_method_id
 
-        # Always pass confirmation.return_url. For interactive payments (no
-        # saved card) this is where YooKassa redirects after the user fills
-        # the form. For autopayments with a saved card it's still needed
-        # because the issuer may require 3DS — without it the user is
-        # bounced to YooKassa's default fallback page instead of our app.
-        # YooKassa rejects custom URI schemes (porublyu://...), so we point
-        # to an HTTPS handler page which then opens the deep link in JS.
-        if return_url:
+        # Pass confirmation.return_url for the redirect flow only. For the SDK
+        # flow (payment_token) YooKassa rejects/ignores a confirmation block —
+        # 3DS is driven by the response's confirmation_url instead.
+        #
+        # For interactive payments (no saved card) this is where YooKassa
+        # redirects after the user fills the form. For autopayments with a saved
+        # card it's still needed because the issuer may require 3DS. YooKassa
+        # rejects custom URI schemes (porublyu://...), so we point to an HTTPS
+        # handler page which then opens the deep link in JS.
+        if return_url and not payment_token:
             body["confirmation"] = {
                 "type": "redirect",
                 "return_url": return_url,
@@ -97,7 +110,8 @@ class YooKassaClient:
             return {
                 "id": fake_id,
                 "status": "pending",
-                "payment_url": None if payment_method_id else f"https://yookassa.test/pay/{fake_id}",
+                # SDK-token and saved-card payments need no redirect URL.
+                "payment_url": None if (payment_method_id or payment_token) else f"https://yookassa.test/pay/{fake_id}",
                 "payment_method_id": fake_id if save_payment_method else None,
             }
 
@@ -147,6 +161,7 @@ class YooKassaClient:
             status=data["status"],
             amount_kopecks=amount_kopecks,
             save_payment_method=save_payment_method,
+            via_sdk_token=payment_token is not None,
             has_confirmation_url=result["payment_url"] is not None,
         )
 

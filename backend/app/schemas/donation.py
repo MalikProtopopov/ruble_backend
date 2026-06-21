@@ -10,6 +10,10 @@ class CreateDonationRequest(BaseModel):
     email: EmailStr | None = None  # Deprecated: clients must use device-register
     payment_method_id: UUID | None = None  # Use a previously saved card
     save_payment_method: bool = False  # Save the card after this payment
+    # Mobile SDK flow: one-time token from the YooKassa iOS/Android SDK. When set,
+    # the payment is created via the SDK token (native card entry, no WebView)
+    # instead of returning a redirect confirmation_url.
+    payment_token: str | None = None
 
 
 class DonationResponse(OrmBase):

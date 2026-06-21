@@ -9,6 +9,7 @@ from app.core.database import get_db_session
 from app.core.security import require_donor
 from app.schemas.subscription import (
     ActiveSubscriptionResponse,
+    BindCardRequest,
     BindCardResponse,
     CreateSubscriptionRequest,
     SubscriptionResponse,
@@ -109,8 +110,10 @@ async def cancel_subscription(
 )
 async def bind_card(
     subscription_id: UUID,
+    body: BindCardRequest | None = None,
     session: AsyncSession = Depends(get_db_session),
     user: dict = Depends(require_donor),
 ):
     user_id = UUID(user["sub"])
-    return await subscription_service.bind_card(session, subscription_id, user_id)
+    payment_token = body.payment_token if body else None
+    return await subscription_service.bind_card(session, subscription_id, user_id, payment_token)

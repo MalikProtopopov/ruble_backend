@@ -133,7 +133,9 @@ async def save_from_yookassa(
     return pm
 
 
-async def initiate_card_save(session: AsyncSession, user_id: UUID) -> dict:
+async def initiate_card_save(
+    session: AsyncSession, user_id: UUID, payment_token: str | None = None,
+) -> dict:
     """Start a standalone card-binding flow.
 
     YooKassa has no card-only tokenization — a card can only be saved as a
@@ -141,8 +143,12 @@ async def initiate_card_save(session: AsyncSession, user_id: UUID) -> dict:
     save_payment_method=true. On payment.succeeded the webhook persists the
     method (save_from_yookassa) and refunds the charge, so binding is free.
 
-    Returns {payment_url, confirmation_type, amount_kopecks}. The caller (mobile
-    app) opens payment_url; the saved card then shows up in GET /payment-methods.
+    Two modes:
+    - **redirect** (default): returns a ``payment_url`` the app opens.
+    - **mobile SDK**: pass ``payment_token`` from the SDK — ``payment_url`` is
+      null (or a 3DS URL the SDK handles), no WebView needed.
+
+    The saved card then shows up in GET /payment-methods.
     """
     amount = CARD_SAVE_AMOUNT_KOPECKS
     idempotence_key = str(uuid7())
@@ -158,21 +164,28 @@ async def initiate_card_save(session: AsyncSession, user_id: UUID) -> dict:
         idempotence_key=idempotence_key,
         return_url=return_url,
         save_payment_method=True,
+        payment_token=payment_token,
         metadata={
             "type": "card_save",
             "entity_id": str(user_id),
         },
     )
 
-    if not payment.get("payment_url"):
+    # In the redirect flow a confirmation URL is required to proceed. In the SDK
+    # flow there's no redirect URL (the payment runs straight through / 3DS via
+    # the SDK), so a missing payment_url is expected and fine.
+    if not payment_token and not payment.get("payment_url"):
         raise BusinessLogicError(
             code="CARD_SAVE_NO_CONFIRMATION",
             message="Не удалось получить ссылку оплаты для привязки карты",
         )
 
-    logger.info("card_save_initiated", user_id=str(user_id), payment_id=payment["id"])
+    logger.info(
+        "card_save_initiated",
+        user_id=str(user_id), payment_id=payment["id"], via_sdk_token=payment_token is not None,
+    )
     return {
-        "payment_url": payment["payment_url"],
+        "payment_url": payment.get("payment_url"),
         "confirmation_type": "redirect",
         "amount_kopecks": amount,
     }

@@ -39,6 +39,7 @@ async def create_donation(
         amount_kopecks=body.amount_kopecks,
         save_payment_method=body.save_payment_method,
         has_payment_method_id=body.payment_method_id is not None,
+        has_payment_token=body.payment_token is not None,
         has_email=email is not None,
         is_authenticated=user_id is not None,
     )
@@ -51,6 +52,7 @@ async def create_donation(
         email=str(email) if email else None,
         payment_method_id=body.payment_method_id,
         save_payment_method=body.save_payment_method,
+        payment_token=body.payment_token,
     )
 
 

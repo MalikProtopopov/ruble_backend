@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db_session
 from app.core.security import require_donor
 from app.schemas.payment_method import (
+    CardSaveRequest,
     CardSaveResponse,
     OrphanedAccountPreview,
     PaymentMethodResponse,
@@ -45,10 +46,12 @@ async def list_payment_methods(
     ),
 )
 async def create_payment_method(
+    body: CardSaveRequest | None = None,
     session: AsyncSession = Depends(get_db_session),
     user: dict = Depends(require_donor),
 ):
-    return await pm_service.initiate_card_save(session, UUID(user["sub"]))
+    payment_token = body.payment_token if body else None
+    return await pm_service.initiate_card_save(session, UUID(user["sub"]), payment_token)
 
 
 @router.delete(

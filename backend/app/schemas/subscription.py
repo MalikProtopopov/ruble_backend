@@ -40,8 +40,16 @@ class ActiveSubscriptionResponse(BaseModel):
     subscription: SubscriptionResponse | None = None
 
 
+class BindCardRequest(BaseModel):
+    """Optional body for bind-card. Mobile SDK flow: pass `payment_token` from
+    the YooKassa SDK. When omitted, the redirect flow returns a `payment_url`."""
+    payment_token: str | None = None
+
+
 class BindCardResponse(BaseModel):
-    payment_url: str
+    # null in the SDK flow (payment_token) — the SDK handles 3DS; otherwise the
+    # redirect confirmation URL to open.
+    payment_url: str | None = None
     confirmation_type: str = "redirect"
     subscription_id: UUID
     amount_kopecks: int

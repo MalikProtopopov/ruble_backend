@@ -79,6 +79,7 @@ async def create_donation(
     source: DonationSource = DonationSource.app,
     payment_method_id: UUID | None = None,
     save_payment_method: bool = False,
+    payment_token: str | None = None,
 ) -> Donation:
     """Create a donation. Authenticated users only — gaste flow is replaced by device-register."""
     result = await session.execute(select(Campaign).where(Campaign.id == campaign_id))
@@ -142,14 +143,16 @@ async def create_donation(
     # See: GET /payment-result in app/api/v1/payment_result.py
     return_url = f"{settings.PUBLIC_API_URL.rstrip('/')}/payment-result?donation_id={donation.id}"
 
-    # Create YooKassa payment
+    # Create YooKassa payment. With payment_token (mobile SDK) the saved-card
+    # path is not used — the token carries the payment method.
     payment = await yookassa_client.create_payment(
         amount_kopecks=amount_kopecks,
         description=f"Пожертвование: {campaign.title}"[:128],
         idempotence_key=idempotence_key,
         return_url=return_url,
         save_payment_method=save_payment_method,
-        payment_method_id=provider_pm_id,
+        payment_method_id=None if payment_token else provider_pm_id,
+        payment_token=payment_token,
         metadata={
             "type": "donation",
             "entity_id": str(donation.id),
