@@ -121,6 +121,33 @@ async def test_verify_otp_success_existing_user(db: AsyncSession):
     assert str(result["user"]["id"]) == str(user.id)
 
 
+async def test_verify_otp_master_code(db: AsyncSession):
+    """A configured OTP_MASTER_CODE matches any active OTP without the real code."""
+    from app.core.config import settings
+
+    email = f"master-{uuid7().hex[:8]}@example.com"
+    await _create_otp(db, email, "654321")  # real code is something else
+
+    with patch.object(settings, "OTP_MASTER_CODE", "999000"):
+        result = await verify_otp(db, email, "999000")
+
+    assert result["user"]["is_new"] is True
+    assert result["access_token"]
+
+
+async def test_verify_otp_master_code_disabled_by_default(db: AsyncSession):
+    """With an empty OTP_MASTER_CODE, an arbitrary code must not pass."""
+    from app.core.config import settings
+
+    email = f"nomaster-{uuid7().hex[:8]}@example.com"
+    await _create_otp(db, email, "654321")
+
+    with patch.object(settings, "OTP_MASTER_CODE", ""):
+        with pytest.raises(BusinessLogicError) as exc_info:
+            await verify_otp(db, email, "999000")
+    assert exc_info.value.code == "OTP_INVALID"
+
+
 async def test_verify_otp_wrong_code(db: AsyncSession):
     """Wrong code increments attempts and raises OTP_INVALID."""
     email = f"wrong-{uuid7().hex[:8]}@example.com"

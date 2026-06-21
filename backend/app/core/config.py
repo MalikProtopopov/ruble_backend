@@ -56,6 +56,11 @@ class Settings(BaseSettings):
 
     # Email (OTP)
     EMAIL_PROVIDER: str = "mock"  # mock | sendgrid | smtp
+    # Test-only master OTP code. When non-empty, this exact code matches any
+    # active OTP — lets QA/staging log in without a working email provider.
+    # MUST stay empty ("") in production. Independent of DEBUG on purpose, so
+    # enabling it doesn't drag in SQL echo / webhook-IP bypass.
+    OTP_MASTER_CODE: str = ""
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587
     SMTP_USER: str = ""

@@ -1,5 +1,6 @@
 """Authentication service — OTP, JWT, token rotation."""
 
+import asyncio
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,17 @@ logger = get_logger(__name__)
 
 _ph = PasswordHasher()
 
+# Keep strong references to fire-and-forget background tasks so the event loop
+# doesn't garbage-collect them mid-flight (see asyncio.create_task docs).
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _fire_and_forget(coro) -> None:
+    """Schedule a coroutine to run in the background without blocking the caller."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 
 def _hash_otp(code: str) -> str:
     """Hash OTP code using argon2."""
@@ -34,10 +46,15 @@ def _hash_otp(code: str) -> str:
 def _verify_otp(code_hash: str, code: str) -> bool:
     """Verify OTP code against argon2 hash.
 
-    DEV-only convenience: when DEBUG is on, the master code "111111" matches any
-    active OTP — so local/staging flows can be tested without a real email
-    provider. Gated on settings.DEBUG, so it never applies in production.
+    Test-only convenience master codes that match any active OTP — so QA/staging
+    flows can log in without a working email provider:
+      * settings.OTP_MASTER_CODE — explicit, env-driven, empty by default so it
+        is inert in production. Set it on the test server to hardcode a code.
+      * "111111" when settings.DEBUG is on — legacy local-dev shortcut.
+    Both are off in production (empty master code + DEBUG=False).
     """
+    if settings.OTP_MASTER_CODE and code == settings.OTP_MASTER_CODE:
+        return True
     if settings.DEBUG and code == "111111":
         return True
     try:
@@ -180,13 +197,14 @@ async def send_otp(session: AsyncSession, email: str) -> dict:
     session.add(otp)
     await session.flush()
 
-    # Send OTP email
+    # Send the OTP email in the background so the API responds immediately —
+    # a slow/blocking SMTP provider must not add seconds to send-otp latency.
+    # send_otp_email swallows its own errors (returns False + logs), so the
+    # fire-and-forget task never raises.
     from app.infrastructure.email import send_otp_email
-    sent = await send_otp_email(email, code)
-    if not sent:
-        logger.warning("otp_email_failed", email=email)
+    _fire_and_forget(send_otp_email(email, code))
 
-    logger.info("otp_sent", email=email, sent=sent)
+    logger.info("otp_sent", email=email)
     return {"message": "OTP код отправлен", "expires_in_seconds": OTP_TTL_MINUTES * 60}
 
 
