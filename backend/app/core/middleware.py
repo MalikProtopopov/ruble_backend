@@ -10,6 +10,7 @@ Why a middleware (not a FastAPI dependency):
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from sqlalchemy import update
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from app.core.config import settings
 from app.core.database import async_session_factory
@@ -25,8 +27,91 @@ from app.core.logging import get_logger
 from app.core.redis import redis_client
 from app.core.security import decode_token
 from app.models import User
+from app.models.base import uuid7
 
 logger = get_logger(__name__)
+
+
+def _user_id_from_token(request: Request) -> str | None:
+    """Best-effort: extract the user id from a bearer access token (no DB hit)."""
+    auth = request.headers.get("authorization") or request.headers.get("Authorization")
+    if not auth or not auth.lower().startswith("bearer "):
+        return None
+    token = auth.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+    except jwt.PyJWTError:
+        return None
+    sub = payload.get("sub")
+    return str(sub) if sub else None
+
+
+def _client_ip(request: Request) -> str | None:
+    """Resolve the real client IP, honouring the nginx X-Forwarded-For header."""
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Access log + request tracing for every HTTP request.
+
+    Emits one structured ``http_request`` line per request with method, path,
+    status, duration and the caller's user id. A ``request_id`` is bound to the
+    structlog context so EVERY log line produced while handling the request —
+    including service-layer and exception-handler logs — carries the same id and
+    can be correlated. 4xx are logged at warning, 5xx at error.
+    """
+
+    # Health is polled constantly by the Docker healthcheck — don't spam logs.
+    SKIP_PATHS = frozenset({"/api/v1/health"})
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        request_id = str(uuid7())
+        request.state.request_id = request_id
+        clear_contextvars()
+        bind_contextvars(
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+        )
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            # Should be rare — the generic exception handler normally converts
+            # errors to a 500 response before they reach here. Log defensively.
+            duration_ms = round((time.perf_counter() - start) * 1000, 1)
+            logger.error(
+                "http_request_unhandled",
+                duration_ms=duration_ms,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            clear_contextvars()
+            raise
+
+        duration_ms = round((time.perf_counter() - start) * 1000, 1)
+        if request.url.path not in self.SKIP_PATHS:
+            if response.status_code >= 500:
+                log = logger.error
+            elif response.status_code >= 400:
+                log = logger.warning
+            else:
+                log = logger.info
+            log(
+                "http_request",
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                user_id=_user_id_from_token(request),
+                client_ip=_client_ip(request),
+            )
+        response.headers["X-Request-ID"] = request_id
+        clear_contextvars()
+        return response
 
 
 class LastSeenMiddleware(BaseHTTPMiddleware):

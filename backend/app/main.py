@@ -83,8 +83,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    from app.core.middleware import LastSeenMiddleware
+    from app.core.middleware import LastSeenMiddleware, RequestLoggingMiddleware
     app.add_middleware(LastSeenMiddleware)
+    # Added last → outermost middleware, so it wraps everything and the bound
+    # request_id is available to all inner middleware, handlers and services.
+    app.add_middleware(RequestLoggingMiddleware)
 
     register_exception_handlers(app)
 
